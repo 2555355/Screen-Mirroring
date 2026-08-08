@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">投屏发射端</string>
+    <string name="scan_hint">将二维码对准框内</string>
 </resources>

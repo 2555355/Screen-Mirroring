@@ -46,6 +46,9 @@ screencast/
 │       ├── H264Sender.kt           # TCP 推流
 │       ├── PairingClient.kt        # 配对码发现（UDP）
 │       ├── ScreenCastService.kt    # 抓屏+编码+推流前台服务
+│       ├── EglCore.kt              # EGL 环境封装（GL 旋转渲染）
+│       ├── RotationRenderer.kt     # 竖屏→横屏 16:9 旋转渲染器
+│       ├── ScanQrActivity.kt       # 二维码扫描界面
 │       └── MainActivity.kt         # 主界面（配对码/手动IP）
 ├── receiver-pc/           # PC 接收端 (Python)
 │   ├── frame_protocol.py           # 帧协议解析
@@ -120,9 +123,22 @@ python receiver_ffplay.py --port 8855
 - PC 主版渲染：RGB24 + SDL2 纹理流式更新 + VSync。
 - TV 端解码：MediaCodec 硬解，首次收到 SPS/PPS 才 configure，断流后自动重置等待新关键帧。
 
+## 第三方代码与致谢
+
+本项目的部分模块参考了以下公开技术资料的开源实现模式（均为允许在 GPL v3 项目中借鉴的许可证），并在借鉴基础上按本项目需求重写，未逐行照搬：
+
+- **Android EGL / OpenGL ES 渲染管线**：参考 Google Grafika（Apache 2.0）与 Android 官方 API 文档中的 EGL 上下文管理、OES 纹理渲染通用做法，用于实现手机竖屏画面旋转 90° 为横屏 16:9 编码。
+- **Camera1 + ZXing 扫码**：参考 Google ZXing（Apache 2.0）`core` 模块的 `PlanarYUVLuminanceSource` + `HybridBinarizer` 解码用法，自行实现预览与回调。
+- **H.264 SPS 分辨率解析**：依据 ITU-T H.264 规范实现位流解析（不涉及第三方代码）。
+- **MediaProjection / MediaCodec 投屏**：依据 Android 官方文档与公开示例的通用模式实现。
+
+> 以上涉及的第三方库（AndroidX、Material、ZXing core、kotlinx-coroutines 等）通过 Gradle/Maven 依赖引入，其各自的许可证（Apache 2.0 等）适用于对应库本身，本项目源码整体以 GPL v3.0 开源。
+
 ## 许可证
 
 本项目基于 [GNU General Public License v3.0](LICENSE) 开源。
+
+依据 GPL v3.0 第 5 条，任何对本项目的修改与分发必须同样以 GPL v3.0 开源，并保留原始版权与许可证声明。
 
 ## 贡献
 
