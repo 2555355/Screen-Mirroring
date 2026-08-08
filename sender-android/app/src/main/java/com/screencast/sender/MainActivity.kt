@@ -59,19 +59,24 @@ class MainActivity : AppCompatActivity() {
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
         if (result.resultCode == Activity.RESULT_OK && result.data != null) {
-            val intent = Intent(this, ScreenCastService::class.java).apply {
-                action = ScreenCastService.ACTION_START
-                putExtra(ScreenCastService.EXTRA_RESULT_CODE, result.resultCode)
-                putExtra(ScreenCastService.EXTRA_RESULT_DATA, result.data)
-                putExtra(ScreenCastService.EXTRA_HOST, resolvedHost)
-                putExtra(ScreenCastService.EXTRA_PORT, resolvedPort)
+            try {
+                val intent = Intent(this, ScreenCastService::class.java).apply {
+                    action = ScreenCastService.ACTION_START
+                    putExtra(ScreenCastService.EXTRA_RESULT_CODE, result.resultCode)
+                    putExtra(ScreenCastService.EXTRA_RESULT_DATA, result.data)
+                    putExtra(ScreenCastService.EXTRA_HOST, resolvedHost)
+                    putExtra(ScreenCastService.EXTRA_PORT, resolvedPort)
+                }
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    startForegroundService(intent)
+                } else {
+                    startService(intent)
+                }
+                updateStatus(true)
+            } catch (e: Throwable) {
+                tvStatus.text = "启动投屏服务失败：${e.javaClass.simpleName}: ${e.message}"
+                updateStatus(false)
             }
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                startForegroundService(intent)
-            } else {
-                startService(intent)
-            }
-            updateStatus(true)
         } else {
             Toast.makeText(this, "未授权投屏", Toast.LENGTH_SHORT).show()
         }

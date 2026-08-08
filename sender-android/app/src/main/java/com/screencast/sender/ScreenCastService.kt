@@ -95,65 +95,84 @@ class ScreenCastService : Service() {
             stopSelf()
             return
         }
-
-        // 1) 先拿到 MediaProjection token（Android 14+ 要求先有 token 再启前台服务）
-        val projectionManager =
-            getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-        mediaProjection = projectionManager.getMediaProjection(resultCode, data)
-        if (mediaProjection == null) {
-            sendState("投屏失败：获取 MediaProjection 失败")
-            stopSelf()
-            return
-        }
-        mediaProjection?.registerCallback(object : MediaProjection.Callback() {
-            override fun onStop() {
-                stopCast()
-                stopSelf()
-            }
-        }, null)
-
-        // 2) 有了 token 才能启动 mediaProjection 类型的前台服务
-        startForegroundCompat()
-
-        val host = intent.getStringExtra(EXTRA_HOST) ?: run {
-            Log.e(TAG, "no host")
+        val host = intent.getStringExtra(EXTRA_HOST)
+        val port = intent.getIntExtra(EXTRA_PORT, 8855)
+        if (host.isNullOrEmpty()) {
             sendState("投屏失败：缺少接收端地址")
             stopSelf()
             return
         }
-        val port = intent.getIntExtra(EXTRA_PORT, 8855)
         bitrate = intent.getIntExtra(EXTRA_BITRATE, bitrate)
         fps = intent.getIntExtra(EXTRA_FPS, fps)
         maxEdge = intent.getIntExtra(EXTRA_MAX_EDGE, maxEdge)
 
-        val metrics = DisplayMetrics()
-        val wm = getSystemService(Context.WINDOW_SERVICE) as WindowManager
-        wm.defaultDisplay.getRealMetrics(metrics)
-        dpi = metrics.densityDpi
+        // Android 14+ 要求：getMediaProjection 必须在 startForeground(mediaProjection) 之前。
+        // 但 startForeground 又必须在 Service 启动后尽快调用（5s 内），否则系统会杀进程闪退。
+        // 解决：先在主线程同步拿 token + 启前台服务（都很快），耗时操作放后台线程。
+        try {
+            // 1) 先拿 MediaProjection token
+            val projectionManager =
+                getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+            mediaProjection = projectionManager.getMediaProjection(resultCode, data)
+            if (mediaProjection == null) {
+                sendState("投屏失败：获取 MediaProjection 失败")
+                stopSelf()
+                return
+            }
+            mediaProjection?.registerCallback(object : MediaProjection.Callback() {
+                override fun onStop() {
+                    stopCast()
+                    stopSelf()
+                }
+            }, null)
 
-        var w = metrics.widthPixels
-        var h = metrics.heightPixels
-        // 长边缩放到 maxEdge，并保证宽高为偶数（H.264 要求）
-        if (maxOf(w, h) > maxEdge) {
-            val scale = maxEdge.toFloat() / maxOf(w, h)
-            w = (w * scale).toInt()
-            h = (h * scale).toInt()
-        }
-        width = (w / 2) * 2
-        height = (h / 2) * 2
+            // 2) 立即启动前台服务（持有 token 后才允许 mediaProjection 类型）
+            startForegroundCompat()
 
-        if (!sender.connect(host, port)) {
-            val reason = sender.lastError ?: "未知原因"
-            Log.e(TAG, "connect failed to $host:$port - $reason")
-            sendState("连接失败：$host:$port\n$reason")
+            // 3) 耗时操作（TCP 连接、编码初始化）放后台线程，避免阻塞主线程导致 ANR/闪退
+            Thread {
+                try {
+                    val metrics = DisplayMetrics()
+                    val wm = getSystemService(Context.WINDOW_SERVICE) as WindowManager
+                    wm.defaultDisplay.getRealMetrics(metrics)
+                    dpi = metrics.densityDpi
+
+                    var w = metrics.widthPixels
+                    var h = metrics.heightPixels
+                    if (maxOf(w, h) > maxEdge) {
+                        val scale = maxEdge.toFloat() / maxOf(w, h)
+                        w = (w * scale).toInt()
+                        h = (h * scale).toInt()
+                    }
+                    width = (w / 2) * 2
+                    height = (h / 2) * 2
+
+                    if (!sender.connect(host, port)) {
+                        val reason = sender.lastError ?: "未知原因"
+                        Log.e(TAG, "connect failed to $host:$port - $reason")
+                        sendState("连接失败：$host:$port\n$reason")
+                        stopCast()
+                        stopSelf()
+                        return@Thread
+                    }
+
+                    sendState("已连接 $host:$port，正在投屏")
+                    startEncoding()
+                    isRunning = true
+                } catch (e: Throwable) {
+                    Log.e(TAG, "startCast background error", e)
+                    sendState("投屏失败：${e.javaClass.simpleName}: ${e.message}")
+                    stopCast()
+                    stopSelf()
+                }
+            }.start()
+        } catch (e: Throwable) {
+            // 捕获 SecurityException / IllegalStateException 等，避免闪退
+            Log.e(TAG, "startCast error", e)
+            sendState("投屏失败：${e.javaClass.simpleName}: ${e.message}")
             stopCast()
             stopSelf()
-            return
         }
-
-        sendState("已连接 $host:$port，正在投屏")
-        startEncoding()
-        isRunning = true
     }
 
     /** 发送状态广播给 UI（MainActivity 注册接收）。 */
