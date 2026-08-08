@@ -90,8 +90,8 @@ class MainActivity : AppCompatActivity() {
             return
         }
         displays.forEachIndexed { index, display ->
-            val name = display.displayName ?: "Display ${display.displayId}"
-            val res = "${display.mode?.width ?: 0}x${display.mode?.height ?: 0}"
+            val name = displayLabel(display)
+            val res = displayRes(display)
             val label = "屏幕${index + 1}: $name ($res)"
             val btn = Button(this).apply {
                 text = label
@@ -119,7 +119,7 @@ class MainActivity : AppCompatActivity() {
         stopAllCasts()
         ensureServer()
         val id = display.displayId
-        val name = display.displayName ?: "Display $id"
+        val name = displayLabel(display)
         val p = CastPresentation(
             context = this,
             display = display,
@@ -152,7 +152,7 @@ class MainActivity : AppCompatActivity() {
         }
         displays.forEach { display ->
             val id = display.displayId
-            val name = display.displayName ?: "Display $id"
+            val name = displayLabel(display)
             val p = CastPresentation(
                 context = this,
                 display = display,
@@ -223,6 +223,27 @@ class MainActivity : AppCompatActivity() {
     }
 
     // -------------------------------------------------------------- 工具
+    /** 兼容获取显示器名称（Display.displayName 在 API 30+ 已废弃且非公开）。 */
+    private fun displayLabel(display: Display): String {
+        val name = display.getName()
+        val realName = if (name.isNullOrEmpty()) "Display ${display.displayId}" else name
+        return realName
+    }
+
+    /** 兼容获取显示器分辨率字符串。 */
+    @Suppress("DEPRECATION")
+    private fun displayRes(display: Display): String {
+        val (w, h) = try {
+            val mode = display.mode
+            (mode?.width ?: 0) to (mode?.height ?: 0)
+        } catch (_: Throwable) {
+            val pt = android.graphics.Point()
+            display.getRealSize(pt)
+            pt.x to pt.y
+        }
+        return "${w}x${h}"
+    }
+
     private fun getLocalIp(): String {
         return try {
             val en = NetworkInterface.getNetworkInterfaces()
