@@ -128,13 +128,21 @@ class MainActivity : AppCompatActivity() {
             val name = displayLabel(display)
             val res = displayRes(display)
             val label = "屏幕${index + 1}: $name ($res)"
-            val btn = Button(this).apply {
+            val btn = Button(this, null, 0, R.style.Widget_ScreenCast_Button).apply {
                 text = label
+                // 遥控器 D-Pad 上下可聚焦到此按钮
                 isFocusable = true
                 isFocusableInTouchMode = true
+                // 选中态（蓝色高亮）由 updateButtonSelection 统一维护
                 setOnClickListener { startSingle(display) }
+                tag = display.displayId
             }
             displayList.addView(btn)
+        }
+        updateButtonSelection()
+        // 让首个显示器按钮获得焦点，遥控器一进来即可用 D-Pad 操作
+        if (displayList.childCount > 0) {
+            displayList.getChildAt(0).requestFocus()
         }
     }
 
@@ -170,6 +178,7 @@ class MainActivity : AppCompatActivity() {
             p.show()
             presentations[id] = p
             updateStatusText()
+            updateButtonSelection()
         } catch (e: Exception) {
             Log.e(TAG, "show presentation failed", e)
             Toast.makeText(this, "无法在该显示器显示: ${e.message}", Toast.LENGTH_SHORT).show()
@@ -204,6 +213,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
         updateStatusText()
+        updateButtonSelection()
     }
 
     /** 停掉所有 CastPresentation，但保留 TCP server 以便快速重投。 */
@@ -211,6 +221,23 @@ class MainActivity : AppCompatActivity() {
         presentations.values.forEach { it.release() }
         presentations.clear()
         updateStatusText()
+        updateButtonSelection()
+    }
+
+    /**
+     * 同步显示器按钮的 selected 状态：
+     * 正在投屏的屏按钮置 selected=true（显示蓝色高亮），其余置 false。
+     * 让用户一眼看出当前投到了哪个屏。
+     */
+    private fun updateButtonSelection() {
+        val active = presentations.keys
+        for (i in 0 until displayList.childCount) {
+            val child = displayList.getChildAt(i)
+            if (child is Button) {
+                val id = child.tag as? Int
+                child.isSelected = id != null && active.contains(id)
+            }
+        }
     }
 
     private fun ensureServer() {

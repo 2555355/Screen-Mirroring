@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    TV 端按钮背景 selector：
+    - 默认：深色半透明底，灰色边框
+    - 焦点（遥控器选中）：亮色底 + 亮蓝边框，让用户一眼看出选中了哪个
+    - 已选中（clicked 后 selected=true）：蓝色底，标识当前投屏的目标屏
+-->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- 当前正在投屏的目标屏（代码 setSelected(true)） -->
+    <item android:state_selected="true">
+        <shape android:shape="rectangle">
+            <solid android:color="#FF1565C0" />
+            <stroke android:width="2dp" android:color="#FF82B1FF" />
+            <corners android:radius="6dp" />
+        </shape>
+    </item>
+    <!-- 遥控器/键盘聚焦到的按钮 -->
+    <item android:state_focused="true">
+        <shape android:shape="rectangle">
+            <solid android:color="#FF37474F" />
+            <stroke android:width="2dp" android:color="#FFFFC107" />
+            <corners android:radius="6dp" />
+        </shape>
+    </item>
+    <!-- 普通按下态 -->
+    <item android:state_pressed="true">
+        <shape android:shape="rectangle">
+            <solid android:color="#FF263238" />
+            <corners android:radius="6dp" />
+        </shape>
+    </item>
+    <!-- 默认 -->
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="#33000000" />
+            <stroke android:width="1dp" android:color="#55FFFFFF" />
+            <corners android:radius="6dp" />
+        </shape>
+    </item>
+</selector>

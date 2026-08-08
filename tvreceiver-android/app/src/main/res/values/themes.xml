@@ -1,3 +1,21 @@
 <resources>
-    <style name="Theme.ScreenCast" parent="Theme.MaterialComponents.NoActionBar" />
+    <!-- TV 接收端主题：
+         继承 Material NoActionBar，并通过 buttonStyle 覆盖，让所有 Button 默认带
+         焦点/选中态视觉反馈，方便用遥控器看清当前选中项。 -->
+    <style name="Theme.ScreenCast" parent="Theme.MaterialComponents.NoActionBar">
+        <item name="buttonStyle">@style/Widget.ScreenCast.Button</item>
+    </style>
+
+    <!-- TV 按钮：聚焦时黄色高亮边框 + 深色底，选中（setSelected）时蓝色底。
+         去掉默认的阴影/elevation，避免在 TV 上边缘模糊。 -->
+    <style name="Widget.ScreenCast.Button" parent="Widget.MaterialComponents.Button">
+        <item name="android:background">@drawable/tv_btn_selector</item>
+        <item name="android:textColor">@color/tv_btn_text</item>
+        <item name="android:minHeight">48dp</item>
+        <item name="android:focusable">true</item>
+        <item name="android:focusableInTouchMode">true</item>
+        <item name="android:clickable">true</item>
+        <item name="backgroundTint">@null</item>
+        <item name="elevation">0dp</item>
+    </style>
 </resources>
