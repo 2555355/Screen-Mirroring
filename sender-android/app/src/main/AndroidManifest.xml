@@ -37,6 +37,12 @@
             </intent-filter>
         </activity>
 
+        <!-- 二维码扫描界面，竖屏全屏 -->
+        <activity
+            android:name=".ScanQrActivity"
+            android:screenOrientation="portrait"
+            android:exported="false" />
+
         <service
             android:name=".ScreenCastService"
             android:foregroundServiceType="mediaProjection"

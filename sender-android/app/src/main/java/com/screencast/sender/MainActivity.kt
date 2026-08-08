@@ -19,7 +19,6 @@ import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
-import com.journeyapps.barcodescanner.IntentIntegrator
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -97,16 +96,17 @@ class MainActivity : AppCompatActivity() {
     private val scanLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
-        val res = IntentIntegrator.parseActivityResult(result.resultCode, result.data)
-        val code = res?.contents?.trim()
-        if (!code.isNullOrEmpty()) {
-            // 兼容二维码内容可能带多余字符，只取数字部分
-            val digits = code.filter { it.isDigit() }
-            if (digits.length == 6) {
-                etCode.setText(digits)
-                startPairing(digits)
-            } else {
-                Toast.makeText(this, "二维码内容不是有效配对码：$code", Toast.LENGTH_LONG).show()
+        if (result.resultCode == Activity.RESULT_OK) {
+            val code = result.data?.getStringExtra(ScanQrActivity.EXTRA_RESULT)?.trim()
+            if (!code.isNullOrEmpty()) {
+                // 兼容二维码内容可能带多余字符，只取数字部分
+                val digits = code.filter { it.isDigit() }
+                if (digits.length == 6) {
+                    etCode.setText(digits)
+                    startPairing(digits)
+                } else {
+                    Toast.makeText(this, "二维码内容不是有效配对码：$code", Toast.LENGTH_LONG).show()
+                }
             }
         }
     }
@@ -292,11 +292,6 @@ class MainActivity : AppCompatActivity() {
 
     /** 启动二维码扫描界面。 */
     private fun startScan() {
-        val integrator = IntentIntegrator(this)
-        integrator.setDesiredBarcodeFormats(IntentIntegrator.QR_CODE)
-        integrator.setPrompt("将接收端屏幕上的二维码对准取景框")
-        integrator.setBeepEnabled(true)
-        integrator.setOrientationLocked(false)
-        scanLauncher.launch(integrator.createScanIntent())
+        scanLauncher.launch(Intent(this, ScanQrActivity::class.java))
     }
 }

@@ -52,7 +52,6 @@ dependencies {
     implementation 'com.google.android.material:material:1.9.0'
     implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
     implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3"
-    // 二维码扫描（扫描接收端屏幕上的配对码二维码）
-    // 用 4.2.0：IntentIntegrator 在该版本为稳定 API（4.3.0 起 deprecated）
-    implementation 'com.journeyapps:zxing-android-embedded:4.2.0'
+    // 二维码扫描：用 ZXing core 自实现扫码（与 TV 端生成二维码同库，避免引入 zxing-android-embedded 的兼容问题）
+    implementation 'com.google.zxing:core:3.5.2'
 }
