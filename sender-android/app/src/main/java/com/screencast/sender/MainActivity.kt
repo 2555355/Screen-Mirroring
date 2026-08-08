@@ -1,6 +1,7 @@
 package com.screencast.sender
 
 import android.app.Activity
+import android.app.AlertDialog
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -22,6 +23,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
 
 class MainActivity : AppCompatActivity() {
 
@@ -167,6 +169,28 @@ class MainActivity : AppCompatActivity() {
             IntentFilter(ScreenCastService.ACTION_STATE),
             ContextCompat.RECEIVER_NOT_EXPORTED
         )
+
+        // 如果上次崩溃过，弹窗展示崩溃日志，便于排查
+        showLastCrashIfAny()
+    }
+
+    /** 读取内部目录的崩溃日志并弹窗显示，用户可截图发我。 */
+    private fun showLastCrashIfAny() {
+        val crashFile = File(filesDir, "screencast_crash.log")
+        if (!crashFile.exists()) return
+        val text = runCatching { crashFile.readText() }.getOrNull() ?: return
+        if (text.isBlank()) return
+        AlertDialog.Builder(this)
+            .setTitle("上次崩溃日志")
+            .setMessage(text)
+            .setPositiveButton("知道了") { _, _ -> crashFile.delete() }
+            .setNegativeButton("复制") { _, _ ->
+                val cm = getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                cm.setPrimaryClip(android.content.ClipData.newPlainText("crash", text))
+                Toast.makeText(this, "已复制到剪贴板", Toast.LENGTH_SHORT).show()
+            }
+            .setCancelable(false)
+            .show()
     }
 
     /** 后台用配对码发现接收端，成功后请求投屏授权。 */
