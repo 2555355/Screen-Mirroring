@@ -273,23 +273,37 @@ class ScreenCastService : Service() {
 
     private fun startForegroundCompat() {
         val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        // 1) 先确保通知渠道存在（OriginOS 严格，缺渠道会抛异常）
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            nm.createNotificationChannel(
-                NotificationChannel(
-                    CHANNEL_ID, "投屏", NotificationManager.IMPORTANCE_LOW
-                )
-            )
+            if (nm.getNotificationChannel(CHANNEL_ID) == null) {
+                val ch = NotificationChannel(CHANNEL_ID, "投屏", NotificationManager.IMPORTANCE_LOW)
+                ch.description = "显示投屏进行中状态"
+                ch.setShowBadge(false)
+                nm.createNotificationChannel(ch)
+            }
         }
+        // 2) 通知小图标用系统标准对话框图标，兼容性最好（vivo/OPPO 对自绘图标渲染严格）
         val noti: Notification = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("投屏中")
             .setContentText("正在将屏幕投射到接收端")
-            .setSmallIcon(android.R.drawable.ic_media_play)
+            .setSmallIcon(android.R.drawable.ic_dialog_info)
             .setOngoing(true)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
             .build()
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(NOTI_ID, noti, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION)
-        } else {
-            startForeground(NOTI_ID, noti)
+        // 3) Android 10+ 需要声明前台服务类型；某些 ROM 对该 API 有兼容问题，失败时回退
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                startForeground(NOTI_ID, noti, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION)
+            } else {
+                startForeground(NOTI_ID, noti)
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "startForeground with type failed, fallback: ${e.message}")
+            try {
+                startForeground(NOTI_ID, noti)
+            } catch (e2: Exception) {
+                Log.e(TAG, "startForeground fallback also failed", e2)
+            }
         }
     }
 
