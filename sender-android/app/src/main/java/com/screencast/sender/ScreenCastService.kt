@@ -44,6 +44,10 @@ class ScreenCastService : Service() {
         const val ACTION_START = "com.screencast.sender.START"
         const val ACTION_STOP = "com.screencast.sender.STOP"
 
+        /** 投屏状态变更广播：连接成功/失败/断开，UI 据此更新。 */
+        const val ACTION_STATE = "com.screencast.sender.STATE"
+        const val EXTRA_STATE_TEXT = "state_text"
+
         @Volatile
         var isRunning = false
             private set
@@ -114,10 +118,15 @@ class ScreenCastService : Service() {
         height = (h / 2) * 2
 
         if (!sender.connect(host, port)) {
-            Log.e(TAG, "connect failed to $host:$port")
+            val reason = sender.lastError ?: "未知原因"
+            Log.e(TAG, "connect failed to $host:$port - $reason")
+            sendState("连接失败：$host:$port\n$reason")
+            stopCast()
             stopSelf()
             return
         }
+
+        sendState("已连接 $host:$port，正在投屏")
 
         val projectionManager =
             getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
@@ -131,6 +140,13 @@ class ScreenCastService : Service() {
 
         startEncoding()
         isRunning = true
+    }
+
+    /** 发送状态广播给 UI（MainActivity 注册接收）。 */
+    private fun sendState(text: String) {
+        val intent = Intent(ACTION_STATE).putExtra(EXTRA_STATE_TEXT, text)
+        intent.setPackage(packageName)
+        sendBroadcast(intent)
     }
 
     private fun startEncoding() {
@@ -182,6 +198,12 @@ class ScreenCastService : Service() {
             }
         } catch (e: Exception) {
             Log.e(TAG, "drain error", e)
+        }
+        if (isRunning && !sender.connected) {
+            isRunning = false
+            sendState("已断开：与接收端的连接中断")
+            stopCast()
+            stopSelf()
         }
     }
 

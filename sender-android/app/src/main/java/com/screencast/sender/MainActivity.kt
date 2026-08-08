@@ -1,8 +1,10 @@
 package com.screencast.sender
 
 import android.app.Activity
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.media.projection.MediaProjectionManager
 import android.os.Build
@@ -26,6 +28,18 @@ class MainActivity : AppCompatActivity() {
 
     private var pendingHost = ""
     private var pendingPort = 8855
+
+    /** 接收 ScreenCastService 发来的连接状态（成功/失败/断开）。 */
+    private val stateReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            val text = intent?.getStringExtra(ScreenCastService.EXTRA_STATE_TEXT) ?: return
+            tvStatus.text = text
+            when {
+                text.startsWith("连接失败") || text.startsWith("已断开") -> updateStatus(false)
+                text.startsWith("已连接") -> updateStatus(true)
+            }
+        }
+    }
 
     private val projectionLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -103,6 +117,21 @@ class MainActivity : AppCompatActivity() {
         }
 
         updateStatus(ScreenCastService.isRunning)
+
+        ContextCompat.registerReceiver(
+            this,
+            stateReceiver,
+            IntentFilter(ScreenCastService.ACTION_STATE),
+            ContextCompat.RECEIVER_NOT_EXPORTED
+        )
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        try {
+            unregisterReceiver(stateReceiver)
+        } catch (_: Exception) {
+        }
     }
 
     private fun requestProjection() {

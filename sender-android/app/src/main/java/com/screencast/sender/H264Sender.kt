@@ -14,13 +14,19 @@ class H264Sender {
     var connected = false
         private set
 
+    /** 最近一次连接失败的错误信息，供 UI 展示。 */
+    @Volatile
+    var lastError: String? = null
+        private set
+
     private var socket: Socket? = null
     private var outStream: OutputStream? = null
     private val header = ByteArray(FrameProtocol.HEADER_SIZE)
 
     @Synchronized
-    fun connect(host: String, port: Int, timeoutMs: Int = 3000): Boolean {
+    fun connect(host: String, port: Int, timeoutMs: Int = 6000): Boolean {
         disconnect()
+        lastError = null
         return try {
             val s = Socket()
             s.tcpNoDelay = true
@@ -32,6 +38,7 @@ class H264Sender {
             connected = true
             true
         } catch (e: Exception) {
+            lastError = e.message ?: e.javaClass.simpleName
             connected = false
             false
         }
