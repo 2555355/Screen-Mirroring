@@ -27,12 +27,9 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-        with:
-          packages: |
-            platforms;android-33
-            build-tools;33.0.2
+      # ubuntu-latest 已预装 Android SDK 33 + build-tools，无需额外安装。
+      # 若未来 compileSdk 升级到 runner 未预装的版本，再用 sdkmanager 单独装：
+      #   sdkmanager --install "platforms;android-XX" "build-tools;XX.X.X"
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v3
