@@ -15,36 +15,77 @@
         android:layout_marginBottom="24dp"
         android:gravity="center" />
 
-    <TextView
+    <!-- 配对码模式（默认） -->
+    <LinearLayout
+        android:id="@+id/pairBox"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="接收端 IP 地址" />
+        android:orientation="vertical">
 
-    <EditText
-        android:id="@+id/etHost"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:hint="例如 192.168.1.100"
-        android:inputType="text" />
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="配对码（接收端屏幕上显示）"
+            android:textColor="#FF666666" />
 
-    <TextView
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="端口"
-        android:layout_marginTop="12dp" />
+        <EditText
+            android:id="@+id/etCode"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="例如 482913"
+            android:inputType="number"
+            android:maxLength="6"
+            android:textSize="22sp"
+            android:letterSpacing="0.3" />
 
-    <EditText
-        android:id="@+id/etPort"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:inputType="number" />
+        <Button
+            android:id="@+id/btnPair"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:text="用配对码连接" />
+    </LinearLayout>
 
-    <Button
-        android:id="@+id/btnStart"
+    <!-- 手动 IP 模式（可展开） -->
+    <LinearLayout
+        android:id="@+id/manualBox"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="24dp"
-        android:text="开始投屏" />
+        android:orientation="vertical"
+        android:visibility="gone"
+        android:layout_marginTop="8dp">
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="接收端 IP 地址" />
+
+        <EditText
+            android:id="@+id/etHost"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="例如 192.168.1.100"
+            android:inputType="text" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="端口"
+            android:layout_marginTop="12dp" />
+
+        <EditText
+            android:id="@+id/etPort"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:inputType="number" />
+
+        <Button
+            android:id="@+id/btnStart"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:text="开始投屏" />
+    </LinearLayout>
 
     <Button
         android:id="@+id/btnStop"
@@ -52,6 +93,16 @@
         android:layout_height="wrap_content"
         android:layout_marginTop="8dp"
         android:text="停止投屏" />
+
+    <TextView
+        android:id="@+id/tvToggle"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="16dp"
+        android:text="改用手动 IP 连接 ▾"
+        android:textColor="#FF1976D2"
+        android:gravity="center"
+        android:padding="8dp" />
 
     <TextView
         android:id="@+id/tvStatus"

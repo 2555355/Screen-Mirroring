@@ -1,13 +1,16 @@
 package com.screencast.tv
 
 import android.content.Context
+import android.graphics.Bitmap
 import android.hardware.display.DisplayManager
+import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import android.view.Display
 import android.view.View
 import android.view.WindowManager
 import android.widget.Button
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
@@ -28,10 +31,13 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvStatus: TextView
     private lateinit var btnMirrorAll: Button
     private lateinit var btnRefresh: Button
+    private lateinit var tvPairCode: TextView
+    private lateinit var ivQr: ImageView
 
     /** 当前活跃的 CastPresentation，按 displayId 索引。镜像模式下会有多个。 */
     private val presentations = linkedMapOf<Int, CastPresentation>()
     private var server: ScreenReceiverServer? = null
+    private var pairingServer: PairingServer? = null
 
     private val displayListener = object : DisplayManager.DisplayListener {
         override fun onDisplayAdded(displayId: Int) {
@@ -61,13 +67,42 @@ class MainActivity : AppCompatActivity() {
         tvStatus = findViewById(R.id.tvStatus)
         btnMirrorAll = findViewById(R.id.btnMirrorAll)
         btnRefresh = findViewById(R.id.btnRefresh)
+        tvPairCode = findViewById(R.id.tvPairCode)
+        ivQr = findViewById(R.id.ivQr)
 
-        tvInfo.text = "本机IP: ${getLocalIp()}\n端口: $PORT"
+        tvInfo.text = "本机IP: ${getLocalIp()}\nTCP端口: $PORT"
 
         btnMirrorAll.setOnClickListener { startMirrorAll() }
         btnRefresh.setOnClickListener { refreshDisplayList() }
 
+        // 启动 TCP 接收 + 配对码发现服务（无需先选显示器）
+        ensureServer()
+        startPairing()
+
         refreshDisplayList()
+    }
+
+    /** 启动配对码服务，并在 UI 上显示配对码与二维码。 */
+    private fun startPairing() {
+        if (pairingServer != null) return
+        val name = "${Build.MANUFACTURER} ${Build.MODEL}"
+        val p = PairingServer(
+            context = this,
+            tcpPort = PORT,
+            deviceName = name,
+            onCodeGenerated = { code ->
+                runOnUiThread {
+                    tvPairCode.text = code
+                    // 二维码内容：配对码（手机端扫码后即等同于输入配对码）
+                    QrUtil.generate(code, 512)?.let { bmp ->
+                        ivQr.setImageBitmap(bmp)
+                    }
+                    tvStatus.text = "状态：等待手机连接（配对码 $code）"
+                }
+            }
+        )
+        p.start()
+        pairingServer = p
     }
 
     override fun onResume() {
@@ -209,6 +244,8 @@ class MainActivity : AppCompatActivity() {
     override fun onDestroy() {
         super.onDestroy()
         stopAllCasts()
+        pairingServer?.stop()
+        pairingServer = null
         server?.stop()
         server = null
     }

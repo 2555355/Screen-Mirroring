@@ -29,9 +29,19 @@ def main() -> None:
     ap = argparse.ArgumentParser(description="ScreenCast PC 接收端 (ffplay 版)")
     ap.add_argument("--host", default="0.0.0.0", help="监听地址")
     ap.add_argument("--port", type=int, default=8855, help="监听端口")
+    ap.add_argument("--name", default=socket.gethostname(), help="设备名 (用于配对发现)")
     ap.add_argument("--width", type=int, default=1280, help="窗口初始宽度")
     ap.add_argument("--height", type=int, default=720, help="窗口初始高度")
     args = ap.parse_args()
+
+    # 启动配对码发现服务
+    from pairing_server import PairingServer
+    ps = PairingServer(tcp_port=args.port, device_name=args.name)
+    ps.start()
+    print("=" * 48)
+    print(f"  配对码:  {ps.code}")
+    print(f"  在手机端输入此配对码即可连接")
+    print("=" * 48)
 
     ffplay = find_ffplay()
 

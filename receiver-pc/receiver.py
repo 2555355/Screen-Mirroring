@@ -205,7 +205,17 @@ def main() -> None:
     ap = argparse.ArgumentParser(description="ScreenCast PC 接收端")
     ap.add_argument("--host", default="0.0.0.0", help="监听地址 (默认 0.0.0.0)")
     ap.add_argument("--port", type=int, default=8855, help="监听端口 (默认 8855)")
+    ap.add_argument("--name", default=socket.gethostname(), help="设备名 (用于配对发现)")
     args = ap.parse_args()
+
+    # 启动配对码发现服务，手机端可凭配对码自动连接（无需手填 IP）
+    from pairing_server import PairingServer
+    ps = PairingServer(tcp_port=args.port, device_name=args.name)
+    ps.start()
+    print("=" * 48)
+    print(f"  配对码:  {ps.code}")
+    print(f"  在手机端输入此配对码即可连接")
+    print("=" * 48)
 
     r = Receiver(args.host, args.port)
     t = threading.Thread(target=r.serve, daemon=True)
@@ -214,6 +224,7 @@ def main() -> None:
         r.run_sdl()
     finally:
         r.running = False
+        ps.stop()
         print("[receiver] 已退出")
 
 

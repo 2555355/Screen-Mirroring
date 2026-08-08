@@ -9,6 +9,7 @@
 
 ## 功能特性
 
+- 🔐 **配对码连接**：接收端显示 6 位配对码（TV 端附二维码），手机端输入配对码即可自动发现并连接，无需手填 IP。基于 UDP 广播实现，兼容手动 IP 模式。
 - 📱 **发射端（Android App）**：基于 `MediaProjection` 抓屏 + `MediaCodec` H.264 硬编码 + TCP 推流，无需 root。
 - 🖥️ **PC 接收端（Python）**：
   - 主版 `receiver.py`：PyAV 解码 + SDL2 渲染，窗口可拖到副屏后按 `F` 全屏（`FULLSCREEN_DESKTOP`），**即作为扩展屏显示**。
@@ -43,10 +44,12 @@ screencast/
 │   └── app/src/main/java/com/screencast/sender/
 │       ├── FrameProtocol.kt        # 帧协议
 │       ├── H264Sender.kt           # TCP 推流
+│       ├── PairingClient.kt        # 配对码发现（UDP）
 │       ├── ScreenCastService.kt    # 抓屏+编码+推流前台服务
-│       └── MainActivity.kt         # 主界面
+│       └── MainActivity.kt         # 主界面（配对码/手动IP）
 ├── receiver-pc/           # PC 接收端 (Python)
 │   ├── frame_protocol.py           # 帧协议解析
+│   ├── pairing_server.py           # 配对码发现服务（UDP）
 │   ├── receiver.py                 # PyAV + SDL2 主版
 │   ├── receiver_ffplay.py          # ffplay 备选版
 │   └── requirements.txt
@@ -55,11 +58,21 @@ screencast/
         ├── FrameProtocol.kt        # 帧协议解析
         ├── H264Decoder.kt          # MediaCodec 硬解
         ├── ScreenReceiverServer.kt # TCP 接收服务
+        ├── PairingServer.kt        # 配对码发现服务（UDP）
+        ├── QrUtil.kt               # 二维码生成
         ├── CastPresentation.kt     # 在任意 Display 上全屏显示
-        └── MainActivity.kt         # 多屏选择/镜像
+        └── MainActivity.kt         # 配对码/多屏选择/镜像
 ```
 
 ## 快速开始
+
+### 配对码连接（推荐，无需手填 IP）
+
+接收端启动后会显示一个 6 位配对码（PC 端打印在终端，TV 端显示在屏幕上并附二维码）。
+手机端打开 App，输入该配对码 → 点「用配对码连接」即可自动发现并连接，无需再管 IP 和端口。
+
+> 原理：接收端在 UDP 8856 广播配对信息，手机端凭配对码匹配后拿到接收端 IP 自动发起 TCP 连接。
+> 手机端也保留「改用手动 IP 连接」入口，兼容不支持广播的网络环境。
 
 ### 1) PC 接收端
 
@@ -71,18 +84,28 @@ python receiver.py --port 8855
 python receiver_ffplay.py --port 8855
 ```
 
+启动后终端会打印配对码，例如：
+```
+================================================
+  配对码:  482913
+  在手机端输入此配对码即可连接
+================================================
+```
+
 快捷键：`F` 全屏 / `ESC`、`Q` 退出。
 **扩展屏用法**：把投屏窗口拖到副屏（扩展显示器），按 `F` 全屏到该屏。
 
 ### 2) 手机发射端
 
 用 Android Studio 打开 `sender-android/`，连真机 Run。
-打开 App → 填接收端 IP 与端口 8855 →「开始投屏」→ 系统弹窗授权屏幕录制。
+打开 App → 输入接收端显示的 6 位配对码 →「用配对码连接」→ 系统弹窗授权屏幕录制。
+（也可点底部「改用手动 IP 连接」切换到手动填 IP 模式）
 
 ### 3) Android TV 接收端
 
 用 Android Studio 打开 `tvreceiver-android/`，安装到电视/电视盒子。
-打开后主界面显示本机 IP 并列出所有显示器，D-Pad 选屏或选「镜像到所有屏」。
+打开后主界面显示**配对码 + 二维码**、本机 IP 和显示器列表。
+手机端输入配对码即可连接；D-Pad 选屏或选「镜像到所有屏」可切换显示目标。
 
 ## 使用流程
 

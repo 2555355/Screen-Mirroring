@@ -9,25 +9,39 @@ import android.content.pm.PackageManager
 import android.media.projection.MediaProjectionManager
 import android.os.Build
 import android.os.Bundle
+import android.view.View
 import android.widget.Button
 import android.widget.EditText
+import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class MainActivity : AppCompatActivity() {
 
     private lateinit var projectionManager: MediaProjectionManager
+    private lateinit var etCode: EditText
+    private lateinit var btnPair: Button
+    private lateinit var pairBox: LinearLayout
+    private lateinit var manualBox: LinearLayout
     private lateinit var etHost: EditText
     private lateinit var etPort: EditText
     private lateinit var btnStart: Button
     private lateinit var btnStop: Button
+    private lateinit var tvToggle: TextView
     private lateinit var tvStatus: TextView
 
-    private var pendingHost = ""
-    private var pendingPort = 8855
+    // 配对成功后写入这两个字段，供投屏授权回来后启动服务使用
+    private var resolvedHost = ""
+    private var resolvedPort = 8855
+
+    private val uiScope = CoroutineScope(Dispatchers.Main)
 
     /** 接收 ScreenCastService 发来的连接状态（成功/失败/断开）。 */
     private val stateReceiver = object : BroadcastReceiver() {
@@ -49,8 +63,8 @@ class MainActivity : AppCompatActivity() {
                 action = ScreenCastService.ACTION_START
                 putExtra(ScreenCastService.EXTRA_RESULT_CODE, result.resultCode)
                 putExtra(ScreenCastService.EXTRA_RESULT_DATA, result.data)
-                putExtra(ScreenCastService.EXTRA_HOST, pendingHost)
-                putExtra(ScreenCastService.EXTRA_PORT, pendingPort)
+                putExtra(ScreenCastService.EXTRA_HOST, resolvedHost)
+                putExtra(ScreenCastService.EXTRA_PORT, resolvedPort)
             }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 startForegroundService(intent)
@@ -76,14 +90,34 @@ class MainActivity : AppCompatActivity() {
         projectionManager =
             getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
 
+        etCode = findViewById(R.id.etCode)
+        btnPair = findViewById(R.id.btnPair)
+        pairBox = findViewById(R.id.pairBox)
+        manualBox = findViewById(R.id.manualBox)
         etHost = findViewById(R.id.etHost)
         etPort = findViewById(R.id.etPort)
         btnStart = findViewById(R.id.btnStart)
         btnStop = findViewById(R.id.btnStop)
+        tvToggle = findViewById(R.id.tvToggle)
         tvStatus = findViewById(R.id.tvStatus)
 
-        etPort.setText(pendingPort.toString())
+        etPort.setText(resolvedPort.toString())
 
+        // 配对码连接：后台 UDP 发现 → 拿到 IP 后请求投屏授权
+        btnPair.setOnClickListener {
+            val code = etCode.text.toString().trim()
+            if (code.length != 6) {
+                Toast.makeText(this, "请输入 6 位配对码", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            if (ScreenCastService.isRunning) {
+                Toast.makeText(this, "已在投屏中", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            startPairing(code)
+        }
+
+        // 手动 IP 连接
         btnStart.setOnClickListener {
             val host = etHost.text.toString().trim()
             if (host.isEmpty()) {
@@ -94,17 +128,21 @@ class MainActivity : AppCompatActivity() {
                 Toast.makeText(this, "已在投屏中", Toast.LENGTH_SHORT).show()
                 return@setOnClickListener
             }
-            pendingHost = host
-            pendingPort = etPort.text.toString().trim().toIntOrNull() ?: 8855
+            resolvedHost = host
+            resolvedPort = etPort.text.toString().trim().toIntOrNull() ?: 8855
+            requestProjectionWithPermissionCheck()
+        }
 
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-                ContextCompat.checkSelfPermission(
-                    this, android.Manifest.permission.POST_NOTIFICATIONS
-                ) != PackageManager.PERMISSION_GRANTED
-            ) {
-                notifPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+        // 切换配对码 / 手动 IP
+        tvToggle.setOnClickListener {
+            if (pairBox.visibility == View.VISIBLE) {
+                pairBox.visibility = View.GONE
+                manualBox.visibility = View.VISIBLE
+                tvToggle.text = "改用配对码连接 ▾"
             } else {
-                requestProjection()
+                pairBox.visibility = View.VISIBLE
+                manualBox.visibility = View.GONE
+                tvToggle.text = "改用手动 IP 连接 ▾"
             }
         }
 
@@ -126,6 +164,38 @@ class MainActivity : AppCompatActivity() {
         )
     }
 
+    /** 后台用配对码发现接收端，成功后请求投屏授权。 */
+    private fun startPairing(code: String) {
+        tvStatus.text = "正在搜索配对码 $code ..."
+        btnPair.isEnabled = false
+        uiScope.launch {
+            val receiver = withContext(Dispatchers.IO) {
+                PairingClient(this@MainActivity).discover(code)
+            }
+            btnPair.isEnabled = true
+            if (receiver == null) {
+                tvStatus.text = "未找到配对码 $code 的接收端\n请确认手机与接收端在同一 WiFi"
+                return@launch
+            }
+            resolvedHost = receiver.ip
+            resolvedPort = receiver.tcpPort
+            tvStatus.text = "已发现 ${receiver.name} (${receiver.ip})\n请求投屏授权..."
+            requestProjectionWithPermissionCheck()
+        }
+    }
+
+    private fun requestProjectionWithPermissionCheck() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(
+                this, android.Manifest.permission.POST_NOTIFICATIONS
+            ) != PackageManager.PERMISSION_GRANTED
+        ) {
+            notifPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+        } else {
+            requestProjection()
+        }
+    }
+
     override fun onDestroy() {
         super.onDestroy()
         try {
@@ -140,6 +210,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun updateStatus(running: Boolean) {
         tvStatus.text = if (running) "状态：投屏中" else "状态：未投屏"
+        btnPair.isEnabled = !running
         btnStart.isEnabled = !running
         btnStop.isEnabled = running
     }
