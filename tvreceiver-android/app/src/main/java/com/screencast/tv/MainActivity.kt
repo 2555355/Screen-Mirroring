@@ -1,0 +1,250 @@
+package com.screencast.tv
+
+import android.content.Context
+import android.hardware.display.DisplayManager
+import android.os.Bundle
+import android.util.Log
+import android.view.Display
+import android.view.View
+import android.view.WindowManager
+import android.widget.Button
+import android.widget.LinearLayout
+import android.widget.TextView
+import android.widget.Toast
+import androidx.appcompat.app.AppCompatActivity
+import java.net.Inet4Address
+import java.net.NetworkInterface
+
+class MainActivity : AppCompatActivity() {
+
+    companion object {
+        private const val TAG = "MainActivity"
+        private const val PORT = 8855
+    }
+
+    private lateinit var displayManager: DisplayManager
+    private lateinit var displayList: LinearLayout
+    private lateinit var tvInfo: TextView
+    private lateinit var tvStatus: TextView
+    private lateinit var btnMirrorAll: Button
+    private lateinit var btnRefresh: Button
+
+    /** 当前活跃的 CastPresentation，按 displayId 索引。镜像模式下会有多个。 */
+    private val presentations = linkedMapOf<Int, CastPresentation>()
+    private var server: ScreenReceiverServer? = null
+
+    private val displayListener = object : DisplayManager.DisplayListener {
+        override fun onDisplayAdded(displayId: Int) {
+            Log.i(TAG, "display added: $displayId")
+            refreshDisplayList()
+        }
+
+        override fun onDisplayChanged(displayId: Int) {}
+
+        override fun onDisplayRemoved(displayId: Int) {
+            Log.i(TAG, "display removed: $displayId")
+            // 如果该屏正在投屏，自动停掉
+            presentations.remove(displayId)?.release()
+            refreshDisplayList()
+            updateStatusText()
+        }
+    }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        setContentView(R.layout.activity_main)
+        keepScreenOn(window)
+
+        displayManager = getSystemService(Context.DISPLAY_SERVICE) as DisplayManager
+        displayList = findViewById(R.id.displayList)
+        tvInfo = findViewById(R.id.tvInfo)
+        tvStatus = findViewById(R.id.tvStatus)
+        btnMirrorAll = findViewById(R.id.btnMirrorAll)
+        btnRefresh = findViewById(R.id.btnRefresh)
+
+        tvInfo.text = "本机IP: ${getLocalIp()}\n端口: $PORT"
+
+        btnMirrorAll.setOnClickListener { startMirrorAll() }
+        btnRefresh.setOnClickListener { refreshDisplayList() }
+
+        refreshDisplayList()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        displayManager.registerDisplayListener(displayListener, null)
+        refreshDisplayList()
+    }
+
+    override fun onPause() {
+        super.onPause()
+        displayManager.unregisterDisplayListener(displayListener)
+    }
+
+    // -------------------------------------------------------------- 显示器列表
+    private fun refreshDisplayList() {
+        displayList.removeAllViews()
+        val displays = displayManager.getDisplays()
+        if (displays.isEmpty()) {
+            addHintRow("未检测到显示器")
+            return
+        }
+        displays.forEachIndexed { index, display ->
+            val name = display.displayName ?: "Display ${display.displayId}"
+            val res = "${display.mode?.width ?: 0}x${display.mode?.height ?: 0}"
+            val label = "屏幕${index + 1}: $name ($res)"
+            val btn = Button(this).apply {
+                text = label
+                isFocusable = true
+                isFocusableInTouchMode = true
+                setOnClickListener { startSingle(display) }
+            }
+            displayList.addView(btn)
+        }
+    }
+
+    private fun addHintRow(text: String) {
+        val tv = TextView(this).apply {
+            this.text = text
+            setTextColor(0x80FFFFFF.toInt())
+            textSize = 14f
+            setPadding(8, 16, 8, 16)
+        }
+        displayList.addView(tv)
+    }
+
+    // -------------------------------------------------------------- 投屏控制
+    /** 单屏模式：只在选定的 [display] 上投屏，停掉其他屏。 */
+    private fun startSingle(display: Display) {
+        stopAllCasts()
+        ensureServer()
+        val id = display.displayId
+        val name = display.displayName ?: "Display $id"
+        val p = CastPresentation(
+            context = this,
+            display = display,
+            displayId = id,
+            displayName = name,
+            onReady = { presentation ->
+                presentation.setOverlay("$name · 等待手机画面 ...")
+                updateStatusText()
+            },
+            onExit = { stopAllCasts() }
+        )
+        try {
+            p.show()
+            presentations[id] = p
+            updateStatusText()
+        } catch (e: Exception) {
+            Log.e(TAG, "show presentation failed", e)
+            Toast.makeText(this, "无法在该显示器显示: ${e.message}", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    /** 镜像模式：在所有显示器上同时投屏同一画面。 */
+    private fun startMirrorAll() {
+        stopAllCasts()
+        ensureServer()
+        val displays = displayManager.getDisplays()
+        if (displays.isEmpty()) {
+            Toast.makeText(this, "未检测到显示器", Toast.LENGTH_SHORT).show()
+            return
+        }
+        displays.forEach { display ->
+            val id = display.displayId
+            val name = display.displayName ?: "Display $id"
+            val p = CastPresentation(
+                context = this,
+                display = display,
+                displayId = id,
+                displayName = name,
+                onReady = { it.setOverlay("$name · 镜像中 ...") },
+                onExit = { stopAllCasts() }
+            )
+            try {
+                p.show()
+                presentations[id] = p
+            } catch (e: Exception) {
+                Log.e(TAG, "show presentation failed on $id", e)
+            }
+        }
+        updateStatusText()
+    }
+
+    /** 停掉所有 CastPresentation，但保留 TCP server 以便快速重投。 */
+    private fun stopAllCasts() {
+        presentations.values.forEach { it.release() }
+        presentations.clear()
+        updateStatusText()
+    }
+
+    private fun ensureServer() {
+        if (server != null) return
+        val s = ScreenReceiverServer(
+            port = PORT,
+            onState = { msg -> runOnUiThread {
+                // 把状态同时刷到所有活跃 Presentation 的浮层和主界面
+                presentations.values.forEach { it.setOverlay(msg) }
+                tvStatus.text = msg
+            } },
+            onFrame = { ts, data ->
+                // 同一份数据分发给所有活跃解码器，实现镜像
+                presentations.values.forEach { it.feed(ts, data) }
+            }
+        )
+        s.start()
+        server = s
+    }
+
+    private fun updateStatusText() {
+        val n = presentations.size
+        tvStatus.text = if (n == 0) {
+            "状态：未投屏"
+        } else {
+            "状态：投屏中（$n 个显示器）"
+        }
+    }
+
+    // -------------------------------------------------------------- 生命周期
+    override fun onDestroy() {
+        super.onDestroy()
+        stopAllCasts()
+        server?.stop()
+        server = null
+    }
+
+    // 在主界面按 BACK：若正在投屏先停投屏，再退出
+    override fun onBackPressed() {
+        if (presentations.isNotEmpty()) {
+            stopAllCasts()
+            return
+        }
+        super.onBackPressed()
+    }
+
+    // -------------------------------------------------------------- 工具
+    private fun getLocalIp(): String {
+        return try {
+            val en = NetworkInterface.getNetworkInterfaces()
+            var result = "未知"
+            while (en.hasMoreElements()) {
+                val ni = en.nextElement()
+                if (!ni.isUp || ni.isLoopback) continue
+                val addrs = ni.inetAddresses
+                while (addrs.hasMoreElements()) {
+                    val a = addrs.nextElement()
+                    if (!a.isLoopbackAddress && a is Inet4Address) {
+                        result = a.hostAddress ?: result
+                    }
+                }
+            }
+            result
+        } catch (e: Exception) {
+            "未知"
+        }
+    }
+
+    private fun keepScreenOn(window: android.view.Window) {
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+    }
+}

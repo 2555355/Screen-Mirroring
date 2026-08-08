@@ -1,0 +1,41 @@
+# ---- Android ----
+*.apk
+*.aab
+*.ap_
+*.dex
+*.class
+*.iml
+.gradle/
+build/
+/local.properties
+/captures
+/.idea
+.DS_Store
+# Kotlin
+.cxx/
+
+# Gradle wrapper binaries (若用户自行生成 gradlew)
+/gradlew
+/gradlew.bat
+/gradle/
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+.venv/
+*.egg-info/
+.pytest_cache/
+
+# ---- IDE / OS ----
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
