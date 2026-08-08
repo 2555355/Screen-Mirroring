@@ -45,7 +45,6 @@
 
         <service
             android:name=".ScreenCastService"
-            android:foregroundServiceType="mediaProjection"
             android:stopWithTask="true"
             android:exported="false" />
     </application>
