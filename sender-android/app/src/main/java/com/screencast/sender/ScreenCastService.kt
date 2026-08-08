@@ -70,6 +70,15 @@ class ScreenCastService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
+    override fun onCreate() {
+        super.onCreate()
+        // 关键：Service 一创建就立即调用 startForeground，避免 Android 8+ 的
+        // "ForegroundServiceDidNotStartInTimeException"（5 秒未启前台服务被杀）。
+        // Android 10+ 直接用 mediaProjection type 启动（系统允许在拿到 token 前先占位），
+        // 若该 ROM 不允许则 catch 回退到无 type，后续拿到 token 再升级。
+        startForegroundCompat(withMediaProjectionType = true)
+    }
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_START -> startCast(intent)
@@ -106,16 +115,16 @@ class ScreenCastService : Service() {
         fps = intent.getIntExtra(EXTRA_FPS, fps)
         maxEdge = intent.getIntExtra(EXTRA_MAX_EDGE, maxEdge)
 
-        // Android 14+ 要求：getMediaProjection 必须在 startForeground(mediaProjection) 之前。
-        // 但 startForeground 又必须在 Service 启动后尽快调用（5s 内），否则系统会杀进程闪退。
-        // 解决：先在主线程同步拿 token + 启前台服务（都很快），耗时操作放后台线程。
+        // onCreate 已立即调用 startForeground 占位，这里不会触发超时。
+        // getMediaProjection 放主线程同步执行（本身很快，几毫秒），
+        // 真正耗时的 TCP 连接 + 编码器初始化放后台线程，避免 ANR。
         try {
-            // 1) 先拿 MediaProjection token
             val projectionManager =
                 getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
             mediaProjection = projectionManager.getMediaProjection(resultCode, data)
             if (mediaProjection == null) {
                 sendState("投屏失败：获取 MediaProjection 失败")
+                stopCast()
                 stopSelf()
                 return
             }
@@ -126,10 +135,7 @@ class ScreenCastService : Service() {
                 }
             }, null)
 
-            // 2) 立即启动前台服务（持有 token 后才允许 mediaProjection 类型）
-            startForegroundCompat()
-
-            // 3) 耗时操作（TCP 连接、编码初始化）放后台线程，避免阻塞主线程导致 ANR/闪退
+            // 耗时操作（TCP 连接、编码初始化）放后台线程，避免阻塞主线程导致 ANR/闪退
             Thread {
                 try {
                     val metrics = DisplayMetrics()
@@ -271,9 +277,14 @@ class ScreenCastService : Service() {
         drainThread = null
     }
 
-    private fun startForegroundCompat() {
+    /**
+     * 启动前台服务。
+     * @param withMediaProjectionType 是否带 mediaProjection 类型。
+     *   - false：onCreate 时调用，先用普通前台服务占住，避免 5 秒超时被杀。
+     *   - true：拿到 MediaProjection token 后调用，升级为 mediaProjection 类型。
+     */
+    private fun startForegroundCompat(withMediaProjectionType: Boolean = false) {
         val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        // 1) 先确保通知渠道存在（OriginOS 严格，缺渠道会抛异常）
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             if (nm.getNotificationChannel(CHANNEL_ID) == null) {
                 val ch = NotificationChannel(CHANNEL_ID, "投屏", NotificationManager.IMPORTANCE_LOW)
@@ -282,23 +293,22 @@ class ScreenCastService : Service() {
                 nm.createNotificationChannel(ch)
             }
         }
-        // 2) 通知小图标用系统标准对话框图标，兼容性最好（vivo/OPPO 对自绘图标渲染严格）
+        val title = if (withMediaProjectionType) "投屏中" else "正在准备投屏..."
         val noti: Notification = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("投屏中")
+            .setContentTitle(title)
             .setContentText("正在将屏幕投射到接收端")
             .setSmallIcon(android.R.drawable.ic_dialog_info)
             .setOngoing(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .build()
-        // 3) Android 10+ 需要声明前台服务类型；某些 ROM 对该 API 有兼容问题，失败时回退
         try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            if (withMediaProjectionType && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 startForeground(NOTI_ID, noti, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION)
             } else {
                 startForeground(NOTI_ID, noti)
             }
         } catch (e: Exception) {
-            Log.w(TAG, "startForeground with type failed, fallback: ${e.message}")
+            Log.w(TAG, "startForeground(type=$withMediaProjectionType) failed, fallback: ${e.message}")
             try {
                 startForeground(NOTI_ID, noti)
             } catch (e2: Exception) {
