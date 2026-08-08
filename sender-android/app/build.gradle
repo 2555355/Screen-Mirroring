@@ -15,10 +15,25 @@ android {
         versionName "1.0"
     }
 
+    // 在 CI 上用 debug 签名构建 release APK，产物可直接安装。
+    // 如需正式签名，请把 keystore 信息放到 GitHub Secrets 后覆盖 signingConfig。
+    signingConfigs {
+        ciDebug {
+            storeFile file('debug.keystore')
+            storePassword 'android'
+            keyAlias 'androiddebugkey'
+            keyPassword 'android'
+        }
+    }
+
     buildTypes {
+        debug {
+            signingConfig signingConfigs.ciDebug
+        }
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            signingConfig signingConfigs.ciDebug
         }
     }
 

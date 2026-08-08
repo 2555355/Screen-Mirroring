@@ -1,0 +1,88 @@
+name: Build Android APKs
+
+# 触发条件：推送到 main、PR、以及手动 workflow_dispatch
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'sender-android/**'
+      - 'tvreceiver-android/**'
+      - '.github/workflows/build-apk.yml'
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build Sender & TV Receiver APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: |
+            platforms;android-33
+            build-tools;33.0.2
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: '8.0'
+
+      - name: Generate debug keystore for CI signing
+        run: |
+          for d in sender-android tvreceiver-android; do
+            pushd "$d/app" >/dev/null
+            keytool -genkeypair -v \
+              -keystore debug.keystore \
+              -storepass android \
+              -alias androiddebugkey \
+              -keypass android \
+              -keyalg RSA -keysize 2048 -validity 10000 \
+              -dname "CN=CI, OU=CI, O=Screen-Mirroring, L=NA, ST=NA, C=NA"
+            popd >/dev/null
+          done
+
+      - name: Build Sender APK
+        working-directory: sender-android
+        run: gradle assembleRelease --no-daemon --stacktrace
+
+      - name: Build TV Receiver APK
+        working-directory: tvreceiver-android
+        run: gradle assembleRelease --no-daemon --stacktrace
+
+      - name: Locate built APKs
+        id: locate
+        run: |
+          sender=$(ls sender-android/app/build/outputs/apk/release/*.apk | head -1)
+          tv=$(ls tvreceiver-android/app/build/outputs/apk/release/*.apk | head -1)
+          echo "sender=$sender" >> "$GITHUB_OUTPUT"
+          echo "tv=$tv" >> "$GITHUB_OUTPUT"
+          echo "Found sender: $sender"
+          echo "Found tv: $tv"
+
+      - name: Upload Sender APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: sender-android-apk
+          path: ${{ steps.locate.outputs.sender }}
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload TV Receiver APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: tvreceiver-android-apk
+          path: ${{ steps.locate.outputs.tv }}
+          if-no-files-found: error
+          retention-days: 30
