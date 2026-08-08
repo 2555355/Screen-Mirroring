@@ -72,11 +72,13 @@ class ScreenCastService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        // 关键：Service 一创建就立即调用 startForeground，避免 Android 8+ 的
-        // "ForegroundServiceDidNotStartInTimeException"（5 秒未启前台服务被杀）。
-        // Android 10+ 直接用 mediaProjection type 启动（系统允许在拿到 token 前先占位），
-        // 若该 ROM 不允许则 catch 回退到无 type，后续拿到 token 再升级。
-        startForegroundCompat(withMediaProjectionType = true)
+        // 注意：不要在 onCreate 中调用 startForeground。
+        // Android 14 要求 mediaProjection 类型的前台服务在调用 startForeground 时
+        // 必须已有活跃的 MediaProjection 会话，否则抛 SecurityException。
+        // manifest 声明了 foregroundServiceType="mediaProjection"，2 参版 startForeground
+        // 也会用该类型校验，导致两次调用都失败 → 5 秒超时崩溃。
+        // 正确做法：在 onStartCommand 中先 getMediaProjection 拿到 token，再 startForeground。
+        // onCreate → onStartCommand 间隔极短（毫秒级），不会触发超时。
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -100,6 +102,8 @@ class ScreenCastService : Service() {
         }
         if (data == null) {
             Log.e(TAG, "no projection data")
+            // startForegroundService 已调用，必须调 startForeground 避免超时
+            try { startForegroundCompat(withMediaProjectionType = false) } catch (_: Exception) {}
             sendState("投屏失败：未获取到屏幕授权数据")
             stopSelf()
             return
@@ -107,6 +111,7 @@ class ScreenCastService : Service() {
         val host = intent.getStringExtra(EXTRA_HOST)
         val port = intent.getIntExtra(EXTRA_PORT, 8855)
         if (host.isNullOrEmpty()) {
+            try { startForegroundCompat(withMediaProjectionType = false) } catch (_: Exception) {}
             sendState("投屏失败：缺少接收端地址")
             stopSelf()
             return
@@ -115,19 +120,29 @@ class ScreenCastService : Service() {
         fps = intent.getIntExtra(EXTRA_FPS, fps)
         maxEdge = intent.getIntExtra(EXTRA_MAX_EDGE, maxEdge)
 
-        // onCreate 已立即调用 startForeground 占位，这里不会触发超时。
-        // getMediaProjection 放主线程同步执行（本身很快，几毫秒），
-        // 真正耗时的 TCP 连接 + 编码器初始化放后台线程，避免 ANR。
+        // 关键顺序：先 getMediaProjection 拿到活跃会话，再 startForeground。
+        // Android 14 要求 mediaProjection 类型前台服务在 startForeground 时已有
+        // 活跃的 MediaProjection，否则抛 SecurityException 导致两次 startForeground
+        // 都失败 → 5 秒超时崩溃（ForegroundServiceDidNotStartInTimeException）。
+        // getMediaProjection 本身很快（几毫秒），放主线程不会 ANR；
+        // 真正耗时的 TCP 连接 + 编码器初始化放后台线程。
         try {
             val projectionManager =
                 getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
             mediaProjection = projectionManager.getMediaProjection(resultCode, data)
             if (mediaProjection == null) {
+                // 尽力调用 startForeground 避免超时（可能仍失败，但此分支极少触发）
+                startForegroundCompat(withMediaProjectionType = true)
                 sendState("投屏失败：获取 MediaProjection 失败")
                 stopCast()
                 stopSelf()
                 return
             }
+
+            // 已有活跃的 MediaProjection 会话，现在可以安全地以 mediaProjection
+            // 类型启动前台服务，不会抛 SecurityException。
+            startForegroundCompat(withMediaProjectionType = true)
+
             mediaProjection?.registerCallback(object : MediaProjection.Callback() {
                 override fun onStop() {
                     stopCast()
@@ -174,6 +189,9 @@ class ScreenCastService : Service() {
             }.start()
         } catch (e: Throwable) {
             // 捕获 SecurityException / IllegalStateException 等，避免闪退
+            // getMediaProjection 可能抛异常，此时还没调过 startForeground，
+            // 尽力调一次避免 5 秒超时（内部已 try-catch，失败也不影响）
+            try { startForegroundCompat(withMediaProjectionType = true) } catch (_: Exception) {}
             Log.e(TAG, "startCast error", e)
             sendState("投屏失败：${e.javaClass.simpleName}: ${e.message}")
             stopCast()
@@ -280,8 +298,8 @@ class ScreenCastService : Service() {
     /**
      * 启动前台服务。
      * @param withMediaProjectionType 是否带 mediaProjection 类型。
-     *   - false：onCreate 时调用，先用普通前台服务占住，避免 5 秒超时被杀。
-     *   - true：拿到 MediaProjection token 后调用，升级为 mediaProjection 类型。
+     *   调用前必须先通过 getMediaProjection 拿到活跃会话，否则 Android 14 会抛
+     *   SecurityException 导致 startForeground 失败 → 5 秒超时崩溃。
      */
     private fun startForegroundCompat(withMediaProjectionType: Boolean = false) {
         val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
