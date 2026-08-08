@@ -233,15 +233,13 @@ class MainActivity : AppCompatActivity() {
     /** 兼容获取显示器分辨率字符串。 */
     @Suppress("DEPRECATION")
     private fun displayRes(display: Display): String {
-        val (w, h) = try {
-            val mode = display.mode
-            (mode?.width ?: 0) to (mode?.height ?: 0)
-        } catch (_: Throwable) {
-            val pt = android.graphics.Point()
+        val pt = android.graphics.Point()
+        try {
             display.getRealSize(pt)
-            pt.x to pt.y
+        } catch (_: Throwable) {
+            pt.x = 0; pt.y = 0
         }
-        return "${w}x${h}"
+        return "${pt.x}x${pt.y}"
     }
 
     private fun getLocalIp(): String {
