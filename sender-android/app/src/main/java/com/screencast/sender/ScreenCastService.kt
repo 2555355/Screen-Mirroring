@@ -72,11 +72,13 @@ class ScreenCastService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        // 关键：Service 创建后立即用「无类型」startForeground 占位，避免 5 秒超时。
-        // manifest 已移除 foregroundServiceType，所以 2 参版 startForeground 不会
-        // 校验 mediaProjection 类型，可安全在拿到 projection 前调用。
-        // 拿到 projection 后再用 3 参版升级为 mediaProjection 类型。
-        startForegroundCompat(withMediaProjectionType = false)
+        // 注意：不要在 onCreate 中调用 startForeground。
+        // manifest 声明了 foregroundServiceType="mediaProjection"，
+        // 2 参版和 3 参版 startForeground 在没有活跃 MediaProjection 时都会失败
+        // (SecurityException) → 系统认为未启动前台服务 → 5 秒超时崩溃。
+        // 正确做法：在 onStartCommand 中先 getMediaProjection 拿到 token，
+        // 再调用 3 参版 startForeground。onCreate→onStartCommand 间隔毫秒级，
+        // getMediaProjection 同步且很快，整个流程远小于 5 秒，不会超时。
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -115,10 +117,10 @@ class ScreenCastService : Service() {
         fps = intent.getIntExtra(EXTRA_FPS, fps)
         maxEdge = intent.getIntExtra(EXTRA_MAX_EDGE, maxEdge)
 
-        // 顺序：onCreate 已用无类型 startForeground 占位（防 5 秒超时）。
-        // 这里先 getMediaProjection 拿到活跃会话，再用 3 参版 startForeground
-        // 升级为 mediaProjection 类型，最后才能 createVirtualDisplay。
-        // manifest 已移除 foregroundServiceType，2 参版不会校验 projection 类型。
+        // 关键顺序：先 getMediaProjection 拿到活跃会话，再 3 参版 startForeground。
+        // manifest 声明了 foregroundServiceType="mediaProjection"（Android 14 必须），
+        // 没有活跃 projection 时 startForeground 会抛 SecurityException。
+        // getMediaProjection 同步且很快（几毫秒），不会导致 5 秒超时。
         try {
             val projectionManager =
                 getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
@@ -130,7 +132,7 @@ class ScreenCastService : Service() {
                 return
             }
 
-            // 拿到活跃的 MediaProjection，用 3 参版 startForeground 升级为 mediaProjection 类型
+            // 已有活跃 MediaProjection，3 参版 startForeground 成功激活 mediaProjection 类型
             startForegroundCompat(withMediaProjectionType = true)
 
             mediaProjection?.registerCallback(object : MediaProjection.Callback() {
@@ -288,8 +290,8 @@ class ScreenCastService : Service() {
     /**
      * 启动前台服务。
      * @param withMediaProjectionType 是否带 mediaProjection 类型。
-     *   - false：onCreate 时调用，无类型占位，避免 5 秒超时（manifest 已移除类型声明，2 参版不校验 projection）
-     *   - true：拿到 MediaProjection 后调用，3 参版升级为 mediaProjection 类型
+     *   调用前必须先通过 getMediaProjection 拿到活跃会话，否则 Android 14 会抛
+     *   SecurityException 导致 startForeground 失败 → 5 秒超时崩溃。
      */
     private fun startForegroundCompat(withMediaProjectionType: Boolean = false) {
         val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -313,7 +315,7 @@ class ScreenCastService : Service() {
             // 3 参版：指定 mediaProjection 类型，要求已有活跃的 MediaProjection
             startForeground(NOTI_ID, noti, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION)
         } else {
-            // 2 参版：无类型，仅占位防超时（manifest 未声明 foregroundServiceType，不会校验）
+            // 2 参版：manifest 声明了类型，会使用 manifest 的类型
             startForeground(NOTI_ID, noti)
         }
     }
