@@ -33,6 +33,7 @@ import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
+import android.widget.ScrollView
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
@@ -56,6 +57,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnStop: Button
     private lateinit var tvToggle: TextView
     private lateinit var tvStatus: TextView
+    private lateinit var tvDiag: TextView
+    private lateinit var diagScroll: ScrollView
 
     // 配对成功后写入这两个字段，供投屏授权回来后启动服务使用
     private var resolvedHost = ""
@@ -153,6 +156,18 @@ class MainActivity : AppCompatActivity() {
         btnStop = findViewById(R.id.btnStop)
         tvToggle = findViewById(R.id.tvToggle)
         tvStatus = findViewById(R.id.tvStatus)
+        tvDiag = findViewById(R.id.tvDiag)
+        diagScroll = findViewById(R.id.diagScroll)
+        findViewById<Button>(R.id.btnClearDiag).setOnClickListener {
+            DiagLog.clear()
+        }
+        // 订阅诊断日志：新日志到达时刷新到 TextView，并滚到底部
+        DiagLog.onUpdate = {
+            tvDiag.text = DiagLog.snapshot()
+            diagScroll.post { diagScroll.fullScroll(android.view.View.FOCUS_DOWN) }
+        }
+        // 初始显示一次
+        tvDiag.text = DiagLog.snapshot()
 
         etPort.setText(resolvedPort.toString())
 

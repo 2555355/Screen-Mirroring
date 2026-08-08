@@ -197,6 +197,9 @@ class ScreenCastService : Service() {
                     }
 
                     sendState("已连接 $host:$port，正在投屏")
+                    DiagLog.clear()
+                    DiagLog.log("Cast", "已连接 $host:$port")
+                    DiagLog.log("Cast", "VirtualDisplay 竖屏 ${virtualWidth}x${virtualHeight} → 编码横屏 ${width}x${height}")
                     // 必须在 startEncoding 之前置 true：drain 线程的 while 循环依赖
                     // isRunning 作为退出条件，若此时仍为 false，drain 线程启动后
                     // 一次循环都不进就退出，编码出的帧永远发不出去 → 接收端无画面。
@@ -239,7 +242,7 @@ class ScreenCastService : Service() {
         encoder?.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
         inputSurface = encoder?.createInputSurface()
         encoder?.start()
-        Log.i(TAG, "encoder started: ${width}x${height} ${bitrate}bps ${fps}fps")
+        DiagLog.log("Encoder", "已启动 ${width}x${height} ${bitrate}bps ${fps}fps")
 
         // 旋转渲染器：VirtualDisplay(竖屏 virtualW×virtualH) → SurfaceTexture → 旋转90° → 编码器 inputSurface(横屏 16:9)
         val renderer = RotationRenderer(
@@ -254,7 +257,7 @@ class ScreenCastService : Service() {
 
         // 等待渲染线程初始化完成（inputSurface 就绪），用 CountDownLatch 精确同步
         if (!renderer.awaitReady(3000)) {
-            Log.e(TAG, "RotationRenderer init failed or timeout, inputSurface=${renderer.inputSurface}")
+            DiagLog.e("Render", "初始化超时或失败")
             sendState("投屏失败：画面渲染器初始化失败")
             stopCast()
             stopSelf()
@@ -262,13 +265,13 @@ class ScreenCastService : Service() {
         }
         val renderInput = renderer.inputSurface
         if (renderInput == null) {
-            Log.e(TAG, "renderer inputSurface is null after awaitReady")
+            DiagLog.e("Render", "inputSurface 为空")
             sendState("投屏失败：渲染输入面为空")
             stopCast()
             stopSelf()
             return
         }
-        Log.i(TAG, "renderer ready, creating VirtualDisplay ${virtualWidth}x${virtualHeight}")
+        DiagLog.log("VDisplay", "创建 VirtualDisplay ${virtualWidth}x${virtualHeight} dpi=$dpi")
 
         // VirtualDisplay 渲染到 RotationRenderer 的 inputSurface（竖屏原始分辨率镜像）
         virtualDisplay = mediaProjection?.createVirtualDisplay(
@@ -278,13 +281,13 @@ class ScreenCastService : Service() {
             renderInput, null, null
         )
         if (virtualDisplay == null) {
-            Log.e(TAG, "createVirtualDisplay returned null")
+            DiagLog.e("VDisplay", "createVirtualDisplay 返回 null")
             sendState("投屏失败：无法创建虚拟显示")
             stopCast()
             stopSelf()
             return
         }
-        Log.i(TAG, "VirtualDisplay created, starting drain thread")
+        DiagLog.log("VDisplay", "已创建，开始抓屏投屏")
 
         drainThread = Thread({ drainEncoder() }, "h264-drain").also { it.start() }
     }
@@ -308,9 +311,9 @@ class ScreenCastService : Service() {
                         sender.sendFrame(info.presentationTimeUs, data, data.size)
                         sentFrames++
                         if (sentFrames == 1L) {
-                            Log.i(TAG, "first H264 frame sent: size=${data.size} flags=0x${Integer.toHexString(info.flags)}")
+                            DiagLog.log("Drain", "首帧已发送 size=${data.size} flags=0x${Integer.toHexString(info.flags)}")
                         } else if (sentFrames % 600 == 0L) {
-                            Log.i(TAG, "sent $sentFrames frames total")
+                            DiagLog.log("Drain", "累计发送 $sentFrames 帧")
                         }
                     } else {
                         codec.releaseOutputBuffer(index, false)
@@ -319,15 +322,15 @@ class ScreenCastService : Service() {
                     tryAgainCount++
                     // 每 500 次（约 1 秒）日志一次，便于诊断编码器是否收到输入
                     if (tryAgainCount == 500 || tryAgainCount == 3000) {
-                        Log.w(TAG, "drain: no output for ${tryAgainCount} tries (~${tryAgainCount * 2}ms), sent=$sentFrames")
+                        DiagLog.e("Drain", "编码器 ${tryAgainCount} 次无输出（~${tryAgainCount * 2}ms），已发 $sentFrames 帧")
                     }
                     Thread.sleep(2)
                 }
             }
         } catch (e: Exception) {
-            Log.e(TAG, "drain error", e)
+            DiagLog.e("Drain", "drain 异常", e)
         }
-        Log.i(TAG, "drain exited, sent=$sentFrames frames, connected=${sender.connected}, running=$isRunning")
+        DiagLog.log("Drain", "退出，共发 $sentFrames 帧")
         if (isRunning && !sender.connected) {
             isRunning = false
             sendState("已断开：与接收端的连接中断")

@@ -56,6 +56,7 @@ class H264Sender {
             true
         } catch (e: Exception) {
             lastError = e.message ?: e.javaClass.simpleName
+            DiagLog.e("Sender", "连接失败 $host:$port - ${lastError}")
             connected = false
             false
         }
@@ -71,6 +72,7 @@ class H264Sender {
             os.write(data, 0, size)
             os.flush()
         } catch (e: IOException) {
+            DiagLog.e("Sender", "发送失败：${e.message}，断开连接")
             connected = false
         }
     }

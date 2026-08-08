@@ -154,12 +154,14 @@ class RotationRenderer(
 
     private fun renderLoop() {
         var renderedCount = 0L
+        var frameRecvCount = 0L
         try {
             // 1. 初始化 EGL，绑定到 MediaCodec inputSurface（GL 渲染目标）
+            DiagLog.log("EGL", "初始化中...")
             egl = EglCore()
             outputEglSurface = egl!!.createWindowSurface(codecInputSurface)
             egl!!.makeCurrent(outputEglSurface)
-            Log.i(TAG, "EGL ready, out=${outWidth}x${outHeight}")
+            DiagLog.log("EGL", "就绪，输出 ${outWidth}x${outHeight}")
 
             // 2. 创建 OES 纹理 + SurfaceTexture（VirtualDisplay 的内容会更新此纹理）
             textureId = createOESTexture()
@@ -172,7 +174,7 @@ class RotationRenderer(
             inputSurface = Surface(surfaceTexture)
             initOk = true
             initLatch.countDown()
-            Log.i(TAG, "SurfaceTexture ready, buffer=${inWidth}x${inHeight}, inputSurface=$inputSurface")
+            DiagLog.log("SurfaceTex", "就绪 buffer=${inWidth}x${inHeight} tex=$textureId")
 
             // 3. 编译着色器
             program = createProgram(VERTEX_SHADER, FRAGMENT_SHADER)
@@ -181,20 +183,22 @@ class RotationRenderer(
             uMVPMatrixLoc = GLES20.glGetUniformLocation(program, "uMVPMatrix")
             uSTMatrixLoc = GLES20.glGetUniformLocation(program, "uSTMatrix")
             uTextureLoc = GLES20.glGetUniformLocation(program, "uTexture")
-            Log.i(TAG, "program=$program, tex=$textureId, locs(pos=$aPositionLoc,tc=$aTextureCoordLoc,mvp=$uMVPMatrixLoc,st=$uSTMatrixLoc)")
+            DiagLog.log("Shader", "program=$program locs OK")
 
             // MVP 矩阵：旋转 90°（竖屏变横屏）。
-            // 旋转后原竖屏 (inWidth×inHeight) 内容方向变为 (inHeight×inWidth)，
-            // 与输出 (outWidth×outHeight) 比例一致，无需额外缩放即可填满 viewport。
             Matrix.setRotateM(mvpMatrix, 0, 90f, 0f, 0f, 1f)
 
-            Log.i(TAG, "entering render loop")
+            DiagLog.log("Render", "进入渲染循环，等待 VirtualDisplay 帧...")
 
             // 4. 渲染循环
             while (running) {
                 waitForFrame()
                 if (!running) break
 
+                frameRecvCount++
+                if (frameRecvCount == 1L) {
+                    DiagLog.log("Render", "收到第1帧 → 开始旋转渲染")
+                }
                 surfaceTexture!!.updateTexImage()
                 surfaceTexture!!.getTransformMatrix(stMatrix)
 
@@ -227,15 +231,17 @@ class RotationRenderer(
                 // 提交到 MediaCodec input surface（编码器消费此帧）
                 egl!!.swapBuffers(outputEglSurface)
                 renderedCount++
-                if (renderedCount % 300 == 1L) {
-                    Log.i(TAG, "rendered $renderedCount frames")
+                if (renderedCount == 1L) {
+                    DiagLog.log("Render", "已渲染第1帧到编码器")
+                } else if (renderedCount % 300 == 0L) {
+                    DiagLog.log("Render", "已渲染 $renderedCount 帧 (收 $frameRecvCount)")
                 }
             }
-            Log.i(TAG, "render loop exited, total=$renderedCount")
+            DiagLog.log("Render", "循环退出，共渲染 $renderedCount 帧")
         } catch (e: Throwable) {
             // 初始化失败也要释放 latch，避免外部永久阻塞
             initLatch.countDown()
-            Log.e(TAG, "render loop error (rendered=$renderedCount)", e)
+            DiagLog.e("Render", "渲染异常 (rendered=$renderedCount)", e)
         } finally {
             release()
         }
@@ -258,7 +264,7 @@ class RotationRenderer(
             while (!frameAvailable && running) {
                 val remaining = deadline - System.currentTimeMillis()
                 if (remaining <= 0) {
-                    Log.w(TAG, "waitForFrame timeout ${timeoutMs}ms, no frame from VirtualDisplay")
+                    DiagLog.e("Render", "等待帧超时 ${timeoutMs}ms，VirtualDisplay 未产生画面")
                     return
                 }
                 try {
