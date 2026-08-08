@@ -24,7 +24,7 @@ class H264Sender {
     private val header = ByteArray(FrameProtocol.HEADER_SIZE)
 
     @Synchronized
-    fun connect(host: String, port: Int, timeoutMs: Int = 6000): Boolean {
+    fun connect(host: String, port: Int, timeoutMs: Int = 3000): Boolean {
         disconnect()
         lastError = null
         return try {

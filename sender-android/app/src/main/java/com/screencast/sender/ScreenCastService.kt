@@ -82,17 +82,42 @@ class ScreenCastService : Service() {
     }
 
     private fun startCast(intent: Intent) {
-        startForegroundCompat()
         val resultCode = intent.getIntExtra(EXTRA_RESULT_CODE, 0)
-        @Suppress("DEPRECATION")
-        val data: Intent? = intent.getParcelableExtra(EXTRA_RESULT_DATA)
+        val data: Intent? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            intent.getParcelableExtra(EXTRA_RESULT_DATA, Intent::class.java)
+        } else {
+            @Suppress("DEPRECATION")
+            intent.getParcelableExtra(EXTRA_RESULT_DATA)
+        }
         if (data == null) {
             Log.e(TAG, "no projection data")
+            sendState("投屏失败：未获取到屏幕授权数据")
             stopSelf()
             return
         }
+
+        // 1) 先拿到 MediaProjection token（Android 14+ 要求先有 token 再启前台服务）
+        val projectionManager =
+            getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+        mediaProjection = projectionManager.getMediaProjection(resultCode, data)
+        if (mediaProjection == null) {
+            sendState("投屏失败：获取 MediaProjection 失败")
+            stopSelf()
+            return
+        }
+        mediaProjection?.registerCallback(object : MediaProjection.Callback() {
+            override fun onStop() {
+                stopCast()
+                stopSelf()
+            }
+        }, null)
+
+        // 2) 有了 token 才能启动 mediaProjection 类型的前台服务
+        startForegroundCompat()
+
         val host = intent.getStringExtra(EXTRA_HOST) ?: run {
             Log.e(TAG, "no host")
+            sendState("投屏失败：缺少接收端地址")
             stopSelf()
             return
         }
@@ -127,17 +152,6 @@ class ScreenCastService : Service() {
         }
 
         sendState("已连接 $host:$port，正在投屏")
-
-        val projectionManager =
-            getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-        mediaProjection = projectionManager.getMediaProjection(resultCode, data)
-        mediaProjection?.registerCallback(object : MediaProjection.Callback() {
-            override fun onStop() {
-                stopCast()
-                stopSelf()
-            }
-        }, null)
-
         startEncoding()
         isRunning = true
     }
