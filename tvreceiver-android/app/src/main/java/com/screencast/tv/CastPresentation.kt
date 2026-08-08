@@ -41,9 +41,6 @@ class CastPresentation(
     private lateinit var tvOverlay: TextView
     private var decoder: H264Decoder? = null
     @Volatile private var surfaceReady = false
-    /** 当前 Display 的宽高，用于保持视频比例避免拉伸。 */
-    private var displayWidth = 0
-    private var displayHeight = 0
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -66,10 +63,7 @@ class CastPresentation(
                 onReady(this@CastPresentation)
             }
 
-            override fun surfaceChanged(holder: SurfaceHolder, format: Int, w: Int, h: Int) {
-                displayWidth = w
-                displayHeight = h
-            }
+            override fun surfaceChanged(holder: SurfaceHolder, format: Int, w: Int, h: Int) {}
 
             override fun surfaceDestroyed(holder: SurfaceHolder) {
                 surfaceReady = false
@@ -78,39 +72,10 @@ class CastPresentation(
         })
     }
 
-    /**
-     * 当解码器拿到视频真实宽高时回调，据此调整 SurfaceView 布局保持比例（letterbox），
-     * 避免竖屏视频被拉伸到横屏 TV 的全屏。
-     */
-    fun onVideoSizeChanged(videoW: Int, videoH: Int) {
-        if (videoW <= 0 || videoH <= 0) return
-        val dispW = if (displayWidth > 0) displayWidth else window?.decorView?.width ?: return
-        val dispH = if (displayHeight > 0) displayHeight else window?.decorView?.height ?: return
-        if (dispW <= 0 || dispH <= 0) return
-
-        val videoRatio = videoW.toFloat() / videoH
-        val dispRatio = dispW.toFloat() / dispH
-        val params = surfaceView.layoutParams
-        if (videoRatio > dispRatio) {
-            // 视频更宽：以宽度为准，高度按比例（上下留黑）
-            params.width = dispW
-            params.height = (dispW / videoRatio).toInt()
-        } else {
-            // 视频更高：以高度为准，宽度按比例（左右留黑）
-            params.height = dispH
-            params.width = (dispH * videoRatio).toInt()
-        }
-        surfaceView.layoutParams = params
-        surfaceView.invalidate()
-        Log.i(TAG, "video ${videoW}x${videoH} -> layout ${params.width}x${params.height} on display ${dispW}x${dispH}")
-    }
-
     private fun startDecoder(surface: Surface) {
         if (decoder != null) return
-        val d = H264Decoder(surface) { w, h ->
-            // 在主线程调整 SurfaceView 布局
-            surfaceView.post { onVideoSizeChanged(w, h) }
-        }
+        // 发送端已将画面旋转为横屏 16:9，TV 端直接全屏填满即可，无需 letterbox
+        val d = H264Decoder(surface)
         d.start()
         decoder = d
         Log.i(TAG, "decoder started on display=$displayId ($displayName)")

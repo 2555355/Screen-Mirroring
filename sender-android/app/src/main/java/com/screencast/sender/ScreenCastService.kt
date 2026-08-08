@@ -57,14 +57,19 @@ class ScreenCastService : Service() {
     private var virtualDisplay: VirtualDisplay? = null
     private var encoder: MediaCodec? = null
     private var inputSurface: android.view.Surface? = null
+    private var rotationRenderer: RotationRenderer? = null
     private val sender = H264Sender()
 
-    private var width = 720
-    private var height = 1280
+    // 编码输出为横屏 16:9，配合 RotationRenderer 把竖屏画面旋转 90°
+    private var width = 1280
+    private var height = 720
+    // VirtualDisplay 的原始竖屏分辨率（镜像手机实际屏幕）
+    private var virtualWidth = 720
+    private var virtualHeight = 1280
     private var dpi = 1
     private var bitrate = 4_000_000
     private var fps = 30
-    private var maxEdge = 1080
+    private var maxEdge = 1280
 
     private var drainThread: Thread? = null
 
@@ -147,15 +152,23 @@ class ScreenCastService : Service() {
                     wm.defaultDisplay.getRealMetrics(metrics)
                     dpi = metrics.densityDpi
 
-                    var w = metrics.widthPixels
-                    var h = metrics.heightPixels
-                    if (maxOf(w, h) > maxEdge) {
-                        val scale = maxEdge.toFloat() / maxOf(w, h)
-                        w = (w * scale).toInt()
-                        h = (h * scale).toInt()
+                    // VirtualDisplay 用手机原始竖屏分辨率镜像内容，
+                    // RotationRenderer 会把它旋转 90° 后渲染到横屏 16:9 的编码器输入。
+                    var srcW = metrics.widthPixels
+                    var srcH = metrics.heightPixels
+                    if (maxOf(srcW, srcH) > maxEdge) {
+                        val scale = maxEdge.toFloat() / maxOf(srcW, srcH)
+                        srcW = (srcW * scale).toInt()
+                        srcH = (srcH * scale).toInt()
                     }
-                    width = (w / 2) * 2
-                    height = (h / 2) * 2
+                    srcW = (srcW / 2) * 2
+                    srcH = (srcH / 2) * 2
+
+                    // 编码输出固定为横屏 16:9（旋转后填满 TV 全屏，类似扩展屏）
+                    width = 1280
+                    height = 720
+                    virtualWidth = srcW
+                    virtualHeight = srcH
 
                     if (!sender.connect(host, port)) {
                         val reason = sender.lastError ?: "未知原因"
@@ -195,6 +208,7 @@ class ScreenCastService : Service() {
     }
 
     private fun startEncoding() {
+        // 编码器：输出横屏 16:9 H.264
         val format = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, width, height)
         format.setInteger(
             MediaFormat.KEY_COLOR_FORMAT,
@@ -209,11 +223,24 @@ class ScreenCastService : Service() {
         inputSurface = encoder?.createInputSurface()
         encoder?.start()
 
+        // 旋转渲染器：VirtualDisplay → SurfaceTexture → 旋转90° → 编码器 inputSurface
+        // 手机竖屏画面被旋转为横屏，编码输出 16:9 填满 TV 全屏
+        val renderer = RotationRenderer(inputSurface!!, width, height)
+        renderer.start()
+        rotationRenderer = renderer
+        // 等待 renderer 的 inputSurface 就绪
+        var waitCount = 0
+        while (renderer.inputSurface == null && waitCount < 50) {
+            Thread.sleep(20)
+            waitCount++
+        }
+
+        // VirtualDisplay 渲染到 RotationRenderer 的 inputSurface（竖屏原始分辨率镜像）
         virtualDisplay = mediaProjection?.createVirtualDisplay(
             "ScreenSender",
-            width, height, dpi,
+            virtualWidth, virtualHeight, dpi,
             DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
-            inputSurface, null, null
+            renderer.inputSurface, null, null
         )
 
         drainThread = Thread({ drainEncoder() }, "h264-drain").also { it.start() }
@@ -260,6 +287,10 @@ class ScreenCastService : Service() {
         } catch (_: Exception) {
         }
         try {
+            rotationRenderer?.stop()
+        } catch (_: Exception) {
+        }
+        try {
             encoder?.stop()
         } catch (_: Exception) {
         }
@@ -277,6 +308,7 @@ class ScreenCastService : Service() {
         }
         sender.disconnect()
         virtualDisplay = null
+        rotationRenderer = null
         encoder = null
         inputSurface = null
         mediaProjection = null
