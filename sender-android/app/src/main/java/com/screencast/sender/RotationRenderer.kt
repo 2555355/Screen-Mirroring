@@ -28,6 +28,8 @@ import android.view.Surface
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.FloatBuffer
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.locks.ReentrantLock
 
 /**
@@ -35,14 +37,18 @@ import java.util.concurrent.locks.ReentrantLock
  * 使编码输出的 H.264 为横屏 16:9，TV 端可全屏显示，类似扩展屏效果。
  *
  * 渲染管线：
- *   VirtualDisplay → SurfaceTexture(OES纹理) → 旋转90°+缩放 → MediaCodec inputSurface
+ *   VirtualDisplay(竖屏 inWidth×inHeight) → SurfaceTexture(OES纹理) → 旋转90° → MediaCodec inputSurface(横屏 outWidth×outHeight)
  *
  * @param codecInputSurface MediaCodec.createInputSurface() 返回的 Surface
+ * @param inWidth  VirtualDisplay 输出宽度（竖屏传感器方向，如 720）
+ * @param inHeight VirtualDisplay 输出高度（竖屏传感器方向，如 1280）
  * @param outWidth 编码输出宽度（横屏，如 1280）
  * @param outHeight 编码输出高度（横屏，如 720）
  */
 class RotationRenderer(
     private val codecInputSurface: Surface,
+    private val inWidth: Int = 720,
+    private val inHeight: Int = 1280,
     private val outWidth: Int = 1280,
     private val outHeight: Int = 720
 ) {
@@ -92,8 +98,13 @@ class RotationRenderer(
     private var textureId = 0
     private var surfaceTexture: SurfaceTexture? = null
     /** VirtualDisplay 渲染到此 Surface（内容来自 OES 纹理）。 */
-    var inputSurface: Surface? = null
+    @Volatile var inputSurface: Surface? = null
         private set
+
+    /** 初始化完成（成功或失败）的同步点：外部等待 inputSurface 就绪。 */
+    private val initLatch = CountDownLatch(1)
+    /** 初始化是否成功（inputSurface 已创建，可创建 VirtualDisplay）。 */
+    @Volatile private var initOk = false
 
     private var program = 0
     private var aPositionLoc = 0
@@ -124,6 +135,15 @@ class RotationRenderer(
         thread = Thread({ renderLoop() }, "gl-rotate").also { it.start() }
     }
 
+    /**
+     * 阻塞等待渲染线程初始化完成（inputSurface 就绪或失败）。
+     * @return true 表示 inputSurface 已就绪，可创建 VirtualDisplay。
+     */
+    fun awaitReady(timeoutMs: Long = 3000): Boolean {
+        initLatch.await(timeoutMs, TimeUnit.MILLISECONDS)
+        return initOk
+    }
+
     fun stop() {
         running = false
         signalFrame() // 唤醒可能阻塞的渲染线程
@@ -133,19 +153,26 @@ class RotationRenderer(
     }
 
     private fun renderLoop() {
+        var renderedCount = 0L
         try {
             // 1. 初始化 EGL，绑定到 MediaCodec inputSurface（GL 渲染目标）
             egl = EglCore()
             outputEglSurface = egl!!.createWindowSurface(codecInputSurface)
             egl!!.makeCurrent(outputEglSurface)
+            Log.i(TAG, "EGL ready, out=${outWidth}x${outHeight}")
 
             // 2. 创建 OES 纹理 + SurfaceTexture（VirtualDisplay 的内容会更新此纹理）
             textureId = createOESTexture()
             surfaceTexture = SurfaceTexture(textureId).apply {
-                setDefaultBufferSize(outWidth, outHeight)
+                // 【关键修复】buffer size 必须匹配 VirtualDisplay 的输出分辨率（竖屏传感器方向），
+                // 否则部分设备上 VirtualDisplay 会按 buffer size 渲染，导致竖屏内容塞进横屏 buffer → 帧不更新/方向错乱。
+                setDefaultBufferSize(inWidth, inHeight)
                 setOnFrameAvailableListener { _ -> signalFrame() }
             }
             inputSurface = Surface(surfaceTexture)
+            initOk = true
+            initLatch.countDown()
+            Log.i(TAG, "SurfaceTexture ready, buffer=${inWidth}x${inHeight}, inputSurface=$inputSurface")
 
             // 3. 编译着色器
             program = createProgram(VERTEX_SHADER, FRAGMENT_SHADER)
@@ -154,12 +181,14 @@ class RotationRenderer(
             uMVPMatrixLoc = GLES20.glGetUniformLocation(program, "uMVPMatrix")
             uSTMatrixLoc = GLES20.glGetUniformLocation(program, "uSTMatrix")
             uTextureLoc = GLES20.glGetUniformLocation(program, "uTexture")
+            Log.i(TAG, "program=$program, tex=$textureId, locs(pos=$aPositionLoc,tc=$aTextureCoordLoc,mvp=$uMVPMatrixLoc,st=$uSTMatrixLoc)")
 
-            // MVP 矩阵：先旋转 90 度（竖屏变横屏），再缩放填满 16:9 区域
-            // 旋转后原竖屏的宽变成了高，高变成了宽，需要按比例缩放
+            // MVP 矩阵：旋转 90°（竖屏变横屏）。
+            // 旋转后原竖屏 (inWidth×inHeight) 内容方向变为 (inHeight×inWidth)，
+            // 与输出 (outWidth×outHeight) 比例一致，无需额外缩放即可填满 viewport。
             Matrix.setRotateM(mvpMatrix, 0, 90f, 0f, 0f, 1f)
 
-            Log.i(TAG, "renderer started ${outWidth}x${outHeight}, tex=$textureId")
+            Log.i(TAG, "entering render loop")
 
             // 4. 渲染循环
             while (running) {
@@ -197,9 +226,16 @@ class RotationRenderer(
 
                 // 提交到 MediaCodec input surface（编码器消费此帧）
                 egl!!.swapBuffers(outputEglSurface)
+                renderedCount++
+                if (renderedCount % 300 == 1L) {
+                    Log.i(TAG, "rendered $renderedCount frames")
+                }
             }
-        } catch (e: Exception) {
-            Log.e(TAG, "render loop error", e)
+            Log.i(TAG, "render loop exited, total=$renderedCount")
+        } catch (e: Throwable) {
+            // 初始化失败也要释放 latch，避免外部永久阻塞
+            initLatch.countDown()
+            Log.e(TAG, "render loop error (rendered=$renderedCount)", e)
         } finally {
             release()
         }
@@ -221,7 +257,10 @@ class RotationRenderer(
             val deadline = System.currentTimeMillis() + timeoutMs
             while (!frameAvailable && running) {
                 val remaining = deadline - System.currentTimeMillis()
-                if (remaining <= 0) return
+                if (remaining <= 0) {
+                    Log.w(TAG, "waitForFrame timeout ${timeoutMs}ms, no frame from VirtualDisplay")
+                    return
+                }
                 try {
                     frameCondition.await(remaining, java.util.concurrent.TimeUnit.MILLISECONDS)
                 } catch (_: InterruptedException) {
