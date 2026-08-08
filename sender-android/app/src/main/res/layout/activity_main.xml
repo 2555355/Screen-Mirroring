@@ -44,6 +44,13 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="16dp"
             android:text="用配对码连接" />
+
+        <Button
+            android:id="@+id/btnScan"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="扫码连接" />
     </LinearLayout>
 
     <!-- 手动 IP 模式（可展开） -->

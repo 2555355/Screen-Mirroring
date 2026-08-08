@@ -214,8 +214,17 @@ def main() -> None:
     ps.start()
     print("=" * 48)
     print(f"  配对码:  {ps.code}")
-    print(f"  在手机端输入此配对码即可连接")
+    print(f"  在手机端输入此配对码，或用手机端「扫码连接」扫描下方二维码")
     print("=" * 48)
+    # 终端打印 ASCII 二维码，手机可直接扫描
+    try:
+        import qrcode
+        qr = qrcode.QRCode(border=1)
+        qr.add_data(ps.code)
+        qr.make(fit=True)
+        qr.print_ascii(invert=True)
+    except ImportError:
+        print("[receiver] 如需终端二维码，请 pip install qrcode")
 
     r = Receiver(args.host, args.port)
     t = threading.Thread(target=r.serve, daemon=True)

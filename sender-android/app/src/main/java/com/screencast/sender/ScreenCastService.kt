@@ -178,8 +178,11 @@ class ScreenCastService : Service() {
                     }
 
                     sendState("已连接 $host:$port，正在投屏")
-                    startEncoding()
+                    // 必须在 startEncoding 之前置 true：drain 线程的 while 循环依赖
+                    // isRunning 作为退出条件，若此时仍为 false，drain 线程启动后
+                    // 一次循环都不进就退出，编码出的帧永远发不出去 → 接收端无画面。
                     isRunning = true
+                    startEncoding()
                 } catch (e: Throwable) {
                     Log.e(TAG, "startCast background error", e)
                     sendState("投屏失败：${e.javaClass.simpleName}: ${e.message}")

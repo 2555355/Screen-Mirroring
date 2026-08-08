@@ -19,6 +19,7 @@ import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import com.journeyapps.barcodescanner.IntentIntegrator
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -30,6 +31,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var projectionManager: MediaProjectionManager
     private lateinit var etCode: EditText
     private lateinit var btnPair: Button
+    private lateinit var btnScan: Button
     private lateinit var pairBox: LinearLayout
     private lateinit var manualBox: LinearLayout
     private lateinit var etHost: EditText
@@ -91,6 +93,32 @@ class MainActivity : AppCompatActivity() {
         requestProjection()
     }
 
+    /** 扫码结果回调：扫描到的内容即为 6 位配对码。 */
+    private val scanLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val res = IntentIntegrator.parseActivityResult(result.resultCode, result.data)
+        val code = res?.contents?.trim()
+        if (!code.isNullOrEmpty()) {
+            // 兼容二维码内容可能带多余字符，只取数字部分
+            val digits = code.filter { it.isDigit() }
+            if (digits.length == 6) {
+                etCode.setText(digits)
+                startPairing(digits)
+            } else {
+                Toast.makeText(this, "二维码内容不是有效配对码：$code", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    /** 摄像头权限回调：授权后启动扫码。 */
+    private val cameraPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) startScan()
+        else Toast.makeText(this, "需要摄像头权限才能扫码", Toast.LENGTH_SHORT).show()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
@@ -99,6 +127,7 @@ class MainActivity : AppCompatActivity() {
 
         etCode = findViewById(R.id.etCode)
         btnPair = findViewById(R.id.btnPair)
+        btnScan = findViewById(R.id.btnScan)
         pairBox = findViewById(R.id.pairBox)
         manualBox = findViewById(R.id.manualBox)
         etHost = findViewById(R.id.etHost)
@@ -122,6 +151,22 @@ class MainActivity : AppCompatActivity() {
                 return@setOnClickListener
             }
             startPairing(code)
+        }
+
+        // 扫描接收端屏幕上的二维码
+        btnScan.setOnClickListener {
+            if (ScreenCastService.isRunning) {
+                Toast.makeText(this, "已在投屏中", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            if (ContextCompat.checkSelfPermission(
+                    this, android.Manifest.permission.CAMERA
+                ) != PackageManager.PERMISSION_GRANTED
+            ) {
+                cameraPermissionLauncher.launch(android.Manifest.permission.CAMERA)
+            } else {
+                startScan()
+            }
         }
 
         // 手动 IP 连接
@@ -240,7 +285,18 @@ class MainActivity : AppCompatActivity() {
     private fun updateStatus(running: Boolean) {
         tvStatus.text = if (running) "状态：投屏中" else "状态：未投屏"
         btnPair.isEnabled = !running
+        btnScan.isEnabled = !running
         btnStart.isEnabled = !running
         btnStop.isEnabled = running
+    }
+
+    /** 启动二维码扫描界面。 */
+    private fun startScan() {
+        val integrator = IntentIntegrator(this)
+        integrator.setDesiredBarcodeFormats(IntentIntegrator.QR_CODE)
+        integrator.setPrompt("将接收端屏幕上的二维码对准取景框")
+        integrator.setBeepEnabled(true)
+        integrator.setOrientationLocked(false)
+        scanLauncher.launch(integrator.createScanIntent())
     }
 }
