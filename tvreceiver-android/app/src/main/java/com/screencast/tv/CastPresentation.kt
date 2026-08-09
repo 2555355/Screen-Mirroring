@@ -115,8 +115,9 @@ class CastPresentation(
     }
 
     /**
-     * 按视频真实比例调整 SurfaceView 尺寸，让视频居中显示，
-     * 容器与视频比例不一致时自动留黑边（letterbox），不拉伸。
+     * 按视频真实比例调整 SurfaceView 尺寸：
+     * - 横屏视频（宽 ≥ 高）：crop 模式，全屏填满 TV，超出部分裁切（类似手机视频播放器全屏）
+     * - 竖屏视频（宽 < 高）：letterbox 模式，居中显示，左右留黑边，不裁切不拉伸
      */
     private fun applyLetterbox() {
         if (displayW == 0 || displayH == 0) return
@@ -125,21 +126,33 @@ class CastPresentation(
         val videoRatio = videoW.toFloat() / videoH
         val targetW: Int
         val targetH: Int
-        if (videoRatio > containerRatio) {
-            // 视频更宽 → 填满宽度，上下留黑边
-            targetW = displayW
-            targetH = (displayW / videoRatio).toInt()
+        if (videoW >= videoH) {
+            // 横屏视频：全屏填满（crop），SurfaceView 比容器大，超出部分被裁掉
+            if (videoRatio > containerRatio) {
+                // 视频更宽 → 填满高度，宽度溢出裁掉左右
+                targetH = displayH
+                targetW = (displayH * videoRatio).toInt()
+            } else {
+                // 视频更高 → 填满宽度，高度溢出裁掉上下
+                targetW = displayW
+                targetH = (displayW / videoRatio).toInt()
+            }
         } else {
-            // 视频更高 → 填满高度，左右留黑边
-            targetH = displayH
-            targetW = (displayH * videoRatio).toInt()
+            // 竖屏视频：letterbox（留黑边），不裁切不拉伸
+            if (videoRatio > containerRatio) {
+                targetW = displayW
+                targetH = (displayW / videoRatio).toInt()
+            } else {
+                targetH = displayH
+                targetW = (displayH * videoRatio).toInt()
+            }
         }
         val lp = surfaceView.layoutParams
         if (lp.width != targetW || lp.height != targetH) {
             lp.width = targetW
             lp.height = targetH
             surfaceView.layoutParams = lp
-            Log.i(TAG, "letterbox: video=${videoW}x${videoH} display=${displayW}x${displayH} → surface=${targetW}x${targetH}")
+            Log.i(TAG, "scale: video=${videoW}x${videoH} display=${displayW}x${displayH} → surface=${targetW}x${targetH} mode=${if (videoW >= videoH) "crop" else "letterbox"}")
         }
     }
 
