@@ -175,29 +175,30 @@ class ScreenCastService : Service() {
                     display.getRealMetrics(metrics)
                     dpi = metrics.densityDpi
 
-                    // 判断横竖屏最可靠的方式：直接看物理像素的宽高
-                    //   widthPixels > heightPixels → 当前屏幕物理上是横屏
-                    //   widthPixels < heightPixels → 当前屏幕物理上是竖屏
-                    // 这跟设备自然方向、App 是否强制横屏都无关，纯粹反映"此刻屏幕怎么摆"。
-                    // 之前用 Display.getRotation() 在某些设备（自然方向为横屏的平板/折叠屏）
-                    // 或 App 内强制横屏时返回值不符合预期，导致方向识别错误。
+                    // VirtualDisplay 始终用物理长宽做宽高（永远横屏方向）。
+                    // MediaProjection 抓的是屏幕物理内容，VirtualDisplay 给横屏比例时，
+                    // 系统会自动旋转/缩放屏幕内容填入——这是 Android 投屏到外接显示器的标准行为，
+                    // 优点：
+                    //   1. 不依赖 Display.getRotation() / getRealMetrics 的方向判断（这俩在
+                    //      部分设备/App 强制横屏时不准）
+                    //   2. TV 永远收到横屏视频，crop 全屏填满，无方向问题
+                    //   3. 竖屏 App 旋转后内容会被填到横屏 buffer 里（左右可能留黑/裁切，
+                    //      由系统按 aspect 处理）
                     var physW = metrics.widthPixels
                     var physH = metrics.heightPixels
-                    val isLandscape = physW > physH
-                    DiagLog.log("Cast", "物理方向 ${physW}x${physH} isLandscape=$isLandscape")
-                    // physW/physH 已是当前 UI 所见方向，无需再交换
-
-                    var srcW = physW
-                    var srcH = physH
-                    if (maxOf(srcW, srcH) > maxEdge) {
-                        val scale = maxEdge.toFloat() / maxOf(srcW, srcH)
+                    // 取长边为宽、短边为高 → 横屏
+                    var srcW = maxOf(physW, physH)
+                    var srcH = minOf(physW, physH)
+                    DiagLog.log("Cast", "物理 ${physW}x${physH} → 横屏 ${srcW}x${srcH}")
+                    if (srcW > maxEdge) {
+                        val scale = maxEdge.toFloat() / srcW
                         srcW = (srcW * scale).toInt()
                         srcH = (srcH * scale).toInt()
                     }
                     srcW = (srcW / 2) * 2
                     srcH = (srcH / 2) * 2
 
-                    // 直投：VirtualDisplay 与编码输出都用 UI 所见尺寸，无旋转
+                    // 直投：VirtualDisplay 与编码输出同尺寸，无旋转渲染
                     virtualWidth = srcW
                     virtualHeight = srcH
                     width = srcW
@@ -215,8 +216,8 @@ class ScreenCastService : Service() {
                     sendState("已连接 $host:$port，正在投屏")
                     DiagLog.clear()
                     DiagLog.log("Cast", "已连接 $host:$port")
-                    DiagLog.log("Cast", "方向=${if (isLandscape) "横屏全屏" else "竖屏(左右黑边)"}")
-                    DiagLog.log("Cast", "VirtualDisplay ${virtualWidth}x${virtualHeight} → 编码 ${width}x${height} 直投")
+                    DiagLog.log("Cast", "横屏直投 ${width}x${height}")
+                    DiagLog.log("Cast", "VirtualDisplay ${virtualWidth}x${virtualHeight} → 编码 ${width}x${height}")
                     // 必须在 startEncoding 之前置 true：drain 线程的 while 循环依赖
                     // isRunning 作为退出条件，若此时仍为 false，drain 线程启动后
                     // 一次循环都不进就退出，编码出的帧永远发不出去 → 接收端无画面。
