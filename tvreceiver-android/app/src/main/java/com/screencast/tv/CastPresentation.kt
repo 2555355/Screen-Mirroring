@@ -58,6 +58,12 @@ class CastPresentation(
     private lateinit var tvOverlay: TextView
     private var decoder: H264Decoder? = null
     @Volatile private var surfaceReady = false
+    // TV Display 真实尺寸（surfaceChanged 回调拿到的容器尺寸）
+    private var displayW = 0
+    private var displayH = 0
+    // 视频真实尺寸（从 SPS 解析）
+    private var videoW = 0
+    private var videoH = 0
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -80,7 +86,11 @@ class CastPresentation(
                 onReady(this@CastPresentation)
             }
 
-            override fun surfaceChanged(holder: SurfaceHolder, format: Int, w: Int, h: Int) {}
+            override fun surfaceChanged(holder: SurfaceHolder, format: Int, w: Int, h: Int) {
+                displayW = w
+                displayH = h
+                applyLetterbox()
+            }
 
             override fun surfaceDestroyed(holder: SurfaceHolder) {
                 surfaceReady = false
@@ -91,11 +101,46 @@ class CastPresentation(
 
     private fun startDecoder(surface: Surface) {
         if (decoder != null) return
-        // 发送端已将画面旋转为横屏 16:9，TV 端直接全屏填满即可，无需 letterbox
-        val d = H264Decoder(surface)
+        // 直投方案：发送端按手机实际方向输出（横屏全屏比例 / 竖屏竖屏比例），
+        // TV 端按视频真实宽高 letterbox 居中显示，不拉伸
+        val d = H264Decoder(surface) { w, h ->
+            videoW = w
+            videoH = h
+            // 在解码线程回调，需切到 UI 线程调整布局
+            surfaceView.post { applyLetterbox() }
+        }
         d.start()
         decoder = d
         Log.i(TAG, "decoder started on display=$displayId ($displayName)")
+    }
+
+    /**
+     * 按视频真实比例调整 SurfaceView 尺寸，让视频居中显示，
+     * 容器与视频比例不一致时自动留黑边（letterbox），不拉伸。
+     */
+    private fun applyLetterbox() {
+        if (displayW == 0 || displayH == 0) return
+        if (videoW == 0 || videoH == 0) return
+        val containerRatio = displayW.toFloat() / displayH
+        val videoRatio = videoW.toFloat() / videoH
+        val targetW: Int
+        val targetH: Int
+        if (videoRatio > containerRatio) {
+            // 视频更宽 → 填满宽度，上下留黑边
+            targetW = displayW
+            targetH = (displayW / videoRatio).toInt()
+        } else {
+            // 视频更高 → 填满高度，左右留黑边
+            targetH = displayH
+            targetW = (displayH * videoRatio).toInt()
+        }
+        val lp = surfaceView.layoutParams
+        if (lp.width != targetW || lp.height != targetH) {
+            lp.width = targetW
+            lp.height = targetH
+            surfaceView.layoutParams = lp
+            Log.i(TAG, "letterbox: video=${videoW}x${videoH} display=${displayW}x${displayH} → surface=${targetW}x${targetH}")
+        }
     }
 
     private fun stopDecoder() {

@@ -182,11 +182,9 @@ class ScreenCastService : Service() {
                     // 不需要自己读 Sensor，也不需要旋转渲染——直接按 UI 方向直投即可：
                     //   横屏 → 输出横屏比例，TV 全屏填满
                     //   竖屏 → 输出竖屏比例，TV 左右自动加黑边（方向不变形）
-                    // 该设备自然方向为横屏（rotation=0 即横屏），与普通手机相反，
-                    // 故横屏判断条件调换：rotation=0/180 为横屏，90/270 为竖屏
                     val rotation = display.rotation
-                    val isLandscape = rotation == android.view.Surface.ROTATION_0 ||
-                            rotation == android.view.Surface.ROTATION_180
+                    val isLandscape = rotation == android.view.Surface.ROTATION_90 ||
+                            rotation == android.view.Surface.ROTATION_270
                     DiagLog.log("Cast", "陀螺仪方向 rotation=$rotation isLandscape=$isLandscape")
 
                     // getRealMetrics 返回物理像素（不随 UI 旋转改变），按 UI 方向调整为「所见即所得」
