@@ -269,9 +269,11 @@ class ScreenCastService : Service() {
     private fun startEncoding() {
         // 编码器：根据 useHevc 选择 H.265/HEVC 或 H.264/AVC，HEVC 不支持时自动回退 AVC
         if (useHevc) {
-            if (!MediaCodec.getCodecInfo().any { ci ->
+            val hevcSupported = android.media.MediaCodecList(android.media.MediaCodecList.REGULAR_CODECS)
+                .codecInfos.any { ci ->
                     ci.isEncoder && ci.supportedTypes.any { it.equals(MediaFormat.MIMETYPE_VIDEO_HEVC) }
-                }) {
+                }
+            if (!hevcSupported) {
                 DiagLog.e("Encoder", "设备不支持 H.265 编码，回退 H.264")
                 useHevc = false
             }
