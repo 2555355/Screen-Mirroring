@@ -96,7 +96,12 @@ class MainActivity : AppCompatActivity() {
                     putExtra(ScreenCastService.EXTRA_PORT, resolvedPort)
                     putExtra(ScreenCastService.EXTRA_USE_HEVC, cbHevc.isChecked)
                     putExtra(ScreenCastService.EXTRA_ROTATE_ANGLE,
-                        if (spinRotate.selectedItemPosition == 1) 270 else 90)
+                        when (spinRotate.selectedItemPosition) {
+                            1 -> 270
+                            2 -> 180
+                            3 -> 0
+                            else -> 90
+                        })
                 }
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                     startForegroundService(intent)
@@ -168,11 +173,12 @@ class MainActivity : AppCompatActivity() {
         diagScroll = findViewById(R.id.diagScroll)
         cbHevc = findViewById(R.id.cbHevc)
         spinRotate = findViewById(R.id.spinRotate)
-        // 竖屏旋转角度选项：默认 90°，若投出方向颠倒改为 270°。
-        // 不同设备屏幕传感器方向不同，故提供手动切换。
+        // 竖屏旋转角度选项：不同设备屏幕传感器方向不同，
+        // 90°/270° 把竖屏变横屏填满 TV（推荐），180°/0° 会拉伸或留黑边。
+        // 方向不对时切换其他角度即可。
         spinRotate.adapter = ArrayAdapter(
             this, android.R.layout.simple_spinner_dropdown_item,
-            listOf("90°（默认）", "270°（方向颠倒时用）")
+            listOf("90°（默认）", "270°（90°反方向）", "180°（倒置）", "0°（不旋转）")
         )
         findViewById<Button>(R.id.btnClearDiag).setOnClickListener {
             DiagLog.clear()

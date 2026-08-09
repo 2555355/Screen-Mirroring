@@ -221,12 +221,26 @@ class ScreenCastService : Service() {
                         height = srcH
                         useRotation = false
                     } else {
-                        // 竖屏：VirtualDisplay 用竖屏原始分辨率，编码输出横屏 16:9，
-                        // RotationRenderer 旋转 90° 填满 TV
+                        // 竖屏：VirtualDisplay 用竖屏原始分辨率
                         virtualWidth = srcW
                         virtualHeight = srcH
-                        width = 1280
-                        height = 720
+                        // 90°/270° 旋转后变横屏 16:9 填满 TV；0°/180° 保持竖屏比例避免拉伸
+                        if (rotateAngle == 90 || rotateAngle == 270) {
+                            width = 1280
+                            height = 720
+                        } else {
+                            // 0°/180°：输出竖屏（TV 端会左右黑边，但方向不变形）
+                            width = (virtualWidth * 720 / maxOf(virtualWidth, virtualHeight)).let {
+                                (it / 2) * 2
+                            }
+                            height = (virtualHeight * 720 / maxOf(virtualWidth, virtualHeight)).let {
+                                (it / 2) * 2
+                            }
+                            if (width < 2 || height < 2) {
+                                width = 720
+                                height = 1280
+                            }
+                        }
                         useRotation = true
                     }
 
@@ -242,7 +256,7 @@ class ScreenCastService : Service() {
                     sendState("已连接 $host:$port，正在投屏")
                     DiagLog.clear()
                     DiagLog.log("Cast", "已连接 $host:$port")
-                    DiagLog.log("Cast", "方向=${if (isLandscape) "横屏直投" else "竖屏旋转→横屏"}")
+                    DiagLog.log("Cast", "方向=${if (isLandscape) "横屏直投" else "竖屏旋转${rotateAngle}°"}")
                     DiagLog.log("Cast", "VirtualDisplay ${virtualWidth}x${virtualHeight} → 编码 ${width}x${height} 旋转=$useRotation 角度=$rotateAngle°")
                     // 必须在 startEncoding 之前置 true：drain 线程的 while 循环依赖
                     // isRunning 作为退出条件，若此时仍为 false，drain 线程启动后
