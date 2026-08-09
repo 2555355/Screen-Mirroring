@@ -58,6 +58,8 @@ class ScreenCastService : Service() {
         const val EXTRA_BITRATE = "bitrate"
         const val EXTRA_FPS = "fps"
         const val EXTRA_MAX_EDGE = "max_edge"
+        /** 是否使用 H.265/HEVC 编码（默认 H.264）。 */
+        const val EXTRA_USE_HEVC = "use_hevc"
 
         const val ACTION_START = "com.screencast.sender.START"
         const val ACTION_STOP = "com.screencast.sender.STOP"
@@ -90,6 +92,8 @@ class ScreenCastService : Service() {
     private var bitrate = 4_000_000
     private var fps = 30
     private var maxEdge = 1280
+    // 是否使用 H.265/HEVC 编码（true=HEVC, false=AVC/H.264）
+    private var useHevc = false
 
     private var drainThread: Thread? = null
 
@@ -137,6 +141,7 @@ class ScreenCastService : Service() {
         bitrate = intent.getIntExtra(EXTRA_BITRATE, bitrate)
         fps = intent.getIntExtra(EXTRA_FPS, fps)
         maxEdge = intent.getIntExtra(EXTRA_MAX_EDGE, maxEdge)
+        useHevc = intent.getBooleanExtra(EXTRA_USE_HEVC, false)
 
         // 【Android 14 关键顺序】参考 forasoft 生产实践：
         // 必须 startForeground(MEDIA_PROJECTION 类型) 在 getMediaProjection 之前。
@@ -262,21 +267,45 @@ class ScreenCastService : Service() {
     }
 
     private fun startEncoding() {
-        // 编码器：输出横屏 16:9 H.264
-        val format = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, width, height)
+        // 编码器：根据 useHevc 选择 H.265/HEVC 或 H.264/AVC，HEVC 不支持时自动回退 AVC
+        if (useHevc) {
+            if (!MediaCodec.getCodecInfo().any { ci ->
+                    ci.isEncoder && ci.supportedTypes.any { it.equals(MediaFormat.MIMETYPE_VIDEO_HEVC) }
+                }) {
+                DiagLog.e("Encoder", "设备不支持 H.265 编码，回退 H.264")
+                useHevc = false
+            }
+        }
+        val mime = if (useHevc) MediaFormat.MIMETYPE_VIDEO_HEVC else MediaFormat.MIMETYPE_VIDEO_AVC
+        val format = MediaFormat.createVideoFormat(mime, width, height)
         format.setInteger(
             MediaFormat.KEY_COLOR_FORMAT,
             MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface
         )
         format.setInteger(MediaFormat.KEY_BIT_RATE, bitrate)
         format.setInteger(MediaFormat.KEY_FRAME_RATE, fps)
+        // 关键帧间隔 2s，平衡延迟与容错（过短码率上涨，过长卡顿后恢复慢）
         format.setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 2)
 
-        encoder = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_VIDEO_AVC)
+        // 【低延迟优化】编码端降低端到端延迟
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            // Android 11+：编码器前置低延迟模式
+            format.setInteger(MediaFormat.KEY_LOW_LATENCY, 1)
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            // 实时优先级，减少编码器内部缓冲
+            format.setInteger("priority", 0)
+        }
+        // H.264 用 Baseline profile（最低延迟，无 B 帧）
+        if (!useHevc) {
+            format.setInteger(MediaFormat.KEY_PROFILE, MediaCodecInfo.CodecProfileLevel.AVCProfileBaseline)
+        }
+
+        encoder = MediaCodec.createEncoderByType(mime)
         encoder?.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
         inputSurface = encoder?.createInputSurface()
         encoder?.start()
-        DiagLog.log("Encoder", "已启动 ${width}x${height} ${bitrate}bps ${fps}fps")
+        DiagLog.log("Encoder", "已启动 ${if (useHevc) "H.265" else "H.264"} ${width}x${height} ${bitrate}bps ${fps}fps 低延迟")
 
         // 投屏目标 Surface：横屏直投用 encoder.inputSurface，竖屏旋转用 RotationRenderer.output
         val displayTarget: Surface

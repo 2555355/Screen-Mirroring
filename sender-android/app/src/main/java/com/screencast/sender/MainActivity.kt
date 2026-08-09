@@ -29,6 +29,7 @@ import android.os.Build
 import android.os.Bundle
 import android.view.View
 import android.widget.Button
+import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -59,6 +60,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvStatus: TextView
     private lateinit var tvDiag: TextView
     private lateinit var diagScroll: ScrollView
+    private lateinit var cbHevc: CheckBox
 
     // 配对成功后写入这两个字段，供投屏授权回来后启动服务使用
     private var resolvedHost = ""
@@ -89,6 +91,7 @@ class MainActivity : AppCompatActivity() {
                     putExtra(ScreenCastService.EXTRA_RESULT_DATA, result.data)
                     putExtra(ScreenCastService.EXTRA_HOST, resolvedHost)
                     putExtra(ScreenCastService.EXTRA_PORT, resolvedPort)
+                    putExtra(ScreenCastService.EXTRA_USE_HEVC, cbHevc.isChecked)
                 }
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                     startForegroundService(intent)
@@ -158,6 +161,7 @@ class MainActivity : AppCompatActivity() {
         tvStatus = findViewById(R.id.tvStatus)
         tvDiag = findViewById(R.id.tvDiag)
         diagScroll = findViewById(R.id.diagScroll)
+        cbHevc = findViewById(R.id.cbHevc)
         findViewById<Button>(R.id.btnClearDiag).setOnClickListener {
             DiagLog.clear()
         }

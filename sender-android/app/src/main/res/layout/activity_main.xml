@@ -102,6 +102,13 @@
         android:layout_marginTop="8dp"
         android:text="停止投屏" />
 
+    <CheckBox
+        android:id="@+id/cbHevc"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:text="使用 H.265/HEVC 编码（更省带宽，需 TV 端支持）" />
+
     <TextView
         android:id="@+id/tvToggle"
         android:layout_width="match_parent"
