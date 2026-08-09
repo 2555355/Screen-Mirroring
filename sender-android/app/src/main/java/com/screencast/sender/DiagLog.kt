@@ -68,12 +68,34 @@ object DiagLog {
 
     private fun append(level: String, tag: String, msg: String, t: Throwable?) {
         val ts = timeFmt.format(Date())
-        val line = "$ts $level/[$tag] $msg"
+        // 屏幕显示也带上异常 message + stack 第一行，便于无 adb 时定位
+        val line = buildString {
+            append("$ts $level/[$tag] $msg")
+            if (t != null) {
+                append("\n  ↳ ")
+                append(t.javaClass.simpleName)
+                append(": ")
+                append(t.message ?: "(no message)")
+                // stacktrace 第一行（异常抛出位置）
+                val topFrame = t.stackTrace?.firstOrNull()
+                if (topFrame != null) {
+                    append("\n    at ")
+                    append(topFrame.className.substringAfterLast('.'))
+                    append('.')
+                    append(topFrame.methodName)
+                    append('(')
+                    append(topFrame.fileName ?: "")
+                    append(':')
+                    append(topFrame.lineNumber)
+                    append(')')
+                }
+            }
+        }
         synchronized(lines) {
             lines.addLast(line)
             while (lines.size > MAX_LINES) lines.removeFirst()
         }
-        // 同时打到 logcat，方便有 adb 时也能看
+        // 同时打到 logcat，方便有 adb 时也能看完整 stacktrace
         if (level == "E") Log.e("Diag/$tag", msg, t) else Log.i("Diag/$tag", msg)
         notifyUi()
     }

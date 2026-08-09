@@ -69,6 +69,7 @@ class RotationRenderer(
         """
 
         private const val FRAGMENT_SHADER = """
+            #extension GL_OES_EGL_image_external : require
             precision mediump float;
             varying vec2 vTextureCoord;
             uniform samplerExternalOES uTexture;
@@ -300,19 +301,30 @@ class RotationRenderer(
         val linkStatus = IntArray(1)
         GLES20.glGetProgramiv(p, GLES20.GL_LINK_STATUS, linkStatus, 0)
         if (linkStatus[0] != GLES20.GL_TRUE) {
-            throw RuntimeException("program link failed: ${GLES20.glGetProgramInfoLog(p)}")
+            val info = GLES20.glGetProgramInfoLog(p)
+            DiagLog.e("Shader", "program link 失败: $info")
+            throw RuntimeException("program link failed: $info")
         }
+        DiagLog.log("Shader", "program=$p link OK")
         return p
     }
 
     private fun loadShader(type: Int, src: String): Int {
         val shader = GLES20.glCreateShader(type)
+        if (shader == 0) {
+            val err = GLES20.glGetError()
+            DiagLog.e("Shader", "glCreateShader(${if (type == GLES20.GL_VERTEX_SHADER) "VERTEX" else "FRAGMENT"}) 返回 0, glError=0x${Integer.toHexString(err)}")
+            throw RuntimeException("glCreateShader returned 0, glError=0x${Integer.toHexString(err)}")
+        }
         GLES20.glShaderSource(shader, src)
         GLES20.glCompileShader(shader)
         val compiled = IntArray(1)
         GLES20.glGetShaderiv(shader, GLES20.GL_COMPILE_STATUS, compiled, 0)
         if (compiled[0] != GLES20.GL_TRUE) {
-            throw RuntimeException("shader compile failed: ${GLES20.glGetShaderInfoLog(shader)}")
+            val info = GLES20.glGetShaderInfoLog(shader)
+            val typeName = if (type == GLES20.GL_VERTEX_SHADER) "VERTEX" else "FRAGMENT"
+            DiagLog.e("Shader", "$typeName 编译失败: $info")
+            throw RuntimeException("$typeName shader compile failed: $info")
         }
         return shader
     }
