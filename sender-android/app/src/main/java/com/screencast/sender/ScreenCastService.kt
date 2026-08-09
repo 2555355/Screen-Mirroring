@@ -169,16 +169,32 @@ class ScreenCastService : Service() {
                 try {
                     val metrics = DisplayMetrics()
                     val wm = getSystemService(Context.WINDOW_SERVICE) as WindowManager
-                    wm.defaultDisplay.getRealMetrics(metrics)
+                    val display = wm.defaultDisplay
+                    display.getRealMetrics(metrics)
                     dpi = metrics.densityDpi
 
-                    // 检测当前屏幕方向：
-                    // - 横屏（width > height）：手机已转横，画面直接镜像即可填满 TV（无旋转、无黑边）
-                    // - 竖屏（width <= height）：手机竖持，VirtualDisplay 竖屏内容经 RotationRenderer
-                    //   旋转 90° 变横屏，填满 TV（可能有轻微比例差异，但无黑边）
-                    val isLandscape = metrics.widthPixels > metrics.heightPixels
-                    var srcW = metrics.widthPixels
-                    var srcH = metrics.heightPixels
+                    // 用 Display.getRotation() 判断 UI 方向（getRealMetrics 返回物理像素，不随旋转改变）
+                    // ROTATION_0=竖屏（手机竖持），ROTATION_90/270=横屏（手机横持）
+                    val rotation = display.rotation
+                    val isLandscape = rotation == android.view.Surface.ROTATION_90 ||
+                            rotation == android.view.Surface.ROTATION_270
+                    DiagLog.log("Cast", "Display rotation=$rotation isLandscape=$isLandscape")
+
+                    // 获取物理尺寸，再按 UI 方向调整为「所见即所得」的宽高
+                    var physW = metrics.widthPixels
+                    var physH = metrics.heightPixels
+                    // getRealMetrics 在某些设备返回的是物理传感器方向（通常 width < height）
+                    // 按实际 UI 方向规整：竖屏时 width < height，横屏时 width > height
+                    if (isLandscape && physW < physH) {
+                        // UI 是横屏，但 metrics 返回竖屏方向 → 交换
+                        val t = physW; physW = physH; physH = t
+                    } else if (!isLandscape && physW > physH) {
+                        // UI 是竖屏，但 metrics 返回横屏方向 → 交换
+                        val t = physW; physW = physH; physH = t
+                    }
+
+                    var srcW = physW
+                    var srcH = physH
                     if (maxOf(srcW, srcH) > maxEdge) {
                         val scale = maxEdge.toFloat() / maxOf(srcW, srcH)
                         srcW = (srcW * scale).toInt()
