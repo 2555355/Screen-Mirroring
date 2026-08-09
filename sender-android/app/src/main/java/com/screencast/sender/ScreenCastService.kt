@@ -175,26 +175,17 @@ class ScreenCastService : Service() {
                     display.getRealMetrics(metrics)
                     dpi = metrics.densityDpi
 
-                    // Display.getRotation() = 系统融合陀螺仪/加速度传感器后的屏幕方向结果
-                    //   ROTATION_0   = 竖屏（手机竖持）
-                    //   ROTATION_90  = 横屏（手机左横持）
-                    //   ROTATION_270 = 横屏（手机右横持）
-                    // 不需要自己读 Sensor，也不需要旋转渲染——直接按 UI 方向直投即可：
-                    //   横屏 → 输出横屏比例，TV 全屏填满
-                    //   竖屏 → 输出竖屏比例，TV 左右自动加黑边（方向不变形）
-                    val rotation = display.rotation
-                    val isLandscape = rotation == android.view.Surface.ROTATION_90 ||
-                            rotation == android.view.Surface.ROTATION_270
-                    DiagLog.log("Cast", "陀螺仪方向 rotation=$rotation isLandscape=$isLandscape")
-
-                    // getRealMetrics 返回物理像素（不随 UI 旋转改变），按 UI 方向调整为「所见即所得」
+                    // 判断横竖屏最可靠的方式：直接看物理像素的宽高
+                    //   widthPixels > heightPixels → 当前屏幕物理上是横屏
+                    //   widthPixels < heightPixels → 当前屏幕物理上是竖屏
+                    // 这跟设备自然方向、App 是否强制横屏都无关，纯粹反映"此刻屏幕怎么摆"。
+                    // 之前用 Display.getRotation() 在某些设备（自然方向为横屏的平板/折叠屏）
+                    // 或 App 内强制横屏时返回值不符合预期，导致方向识别错误。
                     var physW = metrics.widthPixels
                     var physH = metrics.heightPixels
-                    if (isLandscape && physW < physH) {
-                        val t = physW; physW = physH; physH = t
-                    } else if (!isLandscape && physW > physH) {
-                        val t = physW; physW = physH; physH = t
-                    }
+                    val isLandscape = physW > physH
+                    DiagLog.log("Cast", "物理方向 ${physW}x${physH} isLandscape=$isLandscape")
+                    // physW/physH 已是当前 UI 所见方向，无需再交换
 
                     var srcW = physW
                     var srcH = physH
