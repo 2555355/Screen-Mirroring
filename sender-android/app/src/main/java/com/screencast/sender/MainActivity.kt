@@ -35,8 +35,6 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import android.widget.ScrollView
-import android.widget.ArrayAdapter
-import android.widget.Spinner
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
@@ -63,7 +61,6 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvDiag: TextView
     private lateinit var diagScroll: ScrollView
     private lateinit var cbHevc: CheckBox
-    private lateinit var spinRotate: Spinner
 
     // 配对成功后写入这两个字段，供投屏授权回来后启动服务使用
     private var resolvedHost = ""
@@ -95,13 +92,6 @@ class MainActivity : AppCompatActivity() {
                     putExtra(ScreenCastService.EXTRA_HOST, resolvedHost)
                     putExtra(ScreenCastService.EXTRA_PORT, resolvedPort)
                     putExtra(ScreenCastService.EXTRA_USE_HEVC, cbHevc.isChecked)
-                    putExtra(ScreenCastService.EXTRA_ROTATE_ANGLE,
-                        when (spinRotate.selectedItemPosition) {
-                            1 -> 270
-                            2 -> 180
-                            3 -> 0
-                            else -> 90
-                        })
                 }
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                     startForegroundService(intent)
@@ -172,14 +162,6 @@ class MainActivity : AppCompatActivity() {
         tvDiag = findViewById(R.id.tvDiag)
         diagScroll = findViewById(R.id.diagScroll)
         cbHevc = findViewById(R.id.cbHevc)
-        spinRotate = findViewById(R.id.spinRotate)
-        // 竖屏旋转角度选项：不同设备屏幕传感器方向不同，
-        // 90°/270° 把竖屏变横屏填满 TV（推荐），180°/0° 会拉伸或留黑边。
-        // 方向不对时切换其他角度即可。
-        spinRotate.adapter = ArrayAdapter(
-            this, android.R.layout.simple_spinner_dropdown_item,
-            listOf("90°（默认）", "270°（90°反方向）", "180°（倒置）", "0°（不旋转）")
-        )
         findViewById<Button>(R.id.btnClearDiag).setOnClickListener {
             DiagLog.clear()
         }

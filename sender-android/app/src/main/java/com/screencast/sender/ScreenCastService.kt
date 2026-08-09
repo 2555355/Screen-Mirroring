@@ -60,8 +60,6 @@ class ScreenCastService : Service() {
         const val EXTRA_MAX_EDGE = "max_edge"
         /** 是否使用 H.265/HEVC 编码（默认 H.264）。 */
         const val EXTRA_USE_HEVC = "use_hevc"
-        /** 竖屏模式下的旋转角度（90 或 270，默认 90）。不同设备传感器方向不同。 */
-        const val EXTRA_ROTATE_ANGLE = "rotate_angle"
 
         const val ACTION_START = "com.screencast.sender.START"
         const val ACTION_STOP = "com.screencast.sender.STOP"
@@ -79,15 +77,12 @@ class ScreenCastService : Service() {
     private var virtualDisplay: VirtualDisplay? = null
     private var encoder: MediaCodec? = null
     private var inputSurface: android.view.Surface? = null
-    private var rotationRenderer: RotationRenderer? = null
     private val sender = H264Sender()
 
-    // 是否使用旋转渲染：横屏直投时 false，竖屏旋转填满时 true
-    private var useRotation = true
-    // 编码输出分辨率（横屏直投时为屏幕原始尺寸，竖屏旋转时固定 16:9）
+    // 编码输出分辨率（= VirtualDisplay 分辨率，直投无旋转）
     private var width = 1280
     private var height = 720
-    // VirtualDisplay 的原始分辨率（镜像手机实际屏幕）
+    // VirtualDisplay 的原始分辨率（镜像手机实际屏幕，按 UI 方向）
     private var virtualWidth = 720
     private var virtualHeight = 1280
     private var dpi = 1
@@ -96,8 +91,6 @@ class ScreenCastService : Service() {
     private var maxEdge = 1280
     // 是否使用 H.265/HEVC 编码（true=HEVC, false=AVC/H.264）
     private var useHevc = false
-    // 竖屏模式下的旋转角度（90 或 270）
-    private var rotateAngle = 90
 
     private var drainThread: Thread? = null
 
@@ -146,7 +139,6 @@ class ScreenCastService : Service() {
         fps = intent.getIntExtra(EXTRA_FPS, fps)
         maxEdge = intent.getIntExtra(EXTRA_MAX_EDGE, maxEdge)
         useHevc = intent.getBooleanExtra(EXTRA_USE_HEVC, false)
-        rotateAngle = intent.getIntExtra(EXTRA_ROTATE_ANGLE, 90)
 
         // 【Android 14 关键顺序】参考 forasoft 生产实践：
         // 必须 startForeground(MEDIA_PROJECTION 类型) 在 getMediaProjection 之前。
@@ -183,23 +175,24 @@ class ScreenCastService : Service() {
                     display.getRealMetrics(metrics)
                     dpi = metrics.densityDpi
 
-                    // 用 Display.getRotation() 判断 UI 方向（getRealMetrics 返回物理像素，不随旋转改变）
-                    // ROTATION_0=竖屏（手机竖持），ROTATION_90/270=横屏（手机横持）
+                    // Display.getRotation() = 系统融合陀螺仪/加速度传感器后的屏幕方向结果
+                    //   ROTATION_0   = 竖屏（手机竖持）
+                    //   ROTATION_90  = 横屏（手机左横持）
+                    //   ROTATION_270 = 横屏（手机右横持）
+                    // 不需要自己读 Sensor，也不需要旋转渲染——直接按 UI 方向直投即可：
+                    //   横屏 → 输出横屏比例，TV 全屏填满
+                    //   竖屏 → 输出竖屏比例，TV 左右自动加黑边（方向不变形）
                     val rotation = display.rotation
                     val isLandscape = rotation == android.view.Surface.ROTATION_90 ||
                             rotation == android.view.Surface.ROTATION_270
-                    DiagLog.log("Cast", "Display rotation=$rotation isLandscape=$isLandscape")
+                    DiagLog.log("Cast", "陀螺仪方向 rotation=$rotation isLandscape=$isLandscape")
 
-                    // 获取物理尺寸，再按 UI 方向调整为「所见即所得」的宽高
+                    // getRealMetrics 返回物理像素（不随 UI 旋转改变），按 UI 方向调整为「所见即所得」
                     var physW = metrics.widthPixels
                     var physH = metrics.heightPixels
-                    // getRealMetrics 在某些设备返回的是物理传感器方向（通常 width < height）
-                    // 按实际 UI 方向规整：竖屏时 width < height，横屏时 width > height
                     if (isLandscape && physW < physH) {
-                        // UI 是横屏，但 metrics 返回竖屏方向 → 交换
                         val t = physW; physW = physH; physH = t
                     } else if (!isLandscape && physW > physH) {
-                        // UI 是竖屏，但 metrics 返回横屏方向 → 交换
                         val t = physW; physW = physH; physH = t
                     }
 
@@ -213,36 +206,11 @@ class ScreenCastService : Service() {
                     srcW = (srcW / 2) * 2
                     srcH = (srcH / 2) * 2
 
-                    if (isLandscape) {
-                        // 横屏：VirtualDisplay 与编码输出同方向，直接镜像，最稳定
-                        virtualWidth = srcW
-                        virtualHeight = srcH
-                        width = srcW
-                        height = srcH
-                        useRotation = false
-                    } else {
-                        // 竖屏：VirtualDisplay 用竖屏原始分辨率
-                        virtualWidth = srcW
-                        virtualHeight = srcH
-                        // 90°/270° 旋转后变横屏 16:9 填满 TV；0°/180° 保持竖屏比例避免拉伸
-                        if (rotateAngle == 90 || rotateAngle == 270) {
-                            width = 1280
-                            height = 720
-                        } else {
-                            // 0°/180°：输出竖屏（TV 端会左右黑边，但方向不变形）
-                            width = (virtualWidth * 720 / maxOf(virtualWidth, virtualHeight)).let {
-                                (it / 2) * 2
-                            }
-                            height = (virtualHeight * 720 / maxOf(virtualWidth, virtualHeight)).let {
-                                (it / 2) * 2
-                            }
-                            if (width < 2 || height < 2) {
-                                width = 720
-                                height = 1280
-                            }
-                        }
-                        useRotation = true
-                    }
+                    // 直投：VirtualDisplay 与编码输出都用 UI 所见尺寸，无旋转
+                    virtualWidth = srcW
+                    virtualHeight = srcH
+                    width = srcW
+                    height = srcH
 
                     if (!sender.connect(host, port)) {
                         val reason = sender.lastError ?: "未知原因"
@@ -256,8 +224,8 @@ class ScreenCastService : Service() {
                     sendState("已连接 $host:$port，正在投屏")
                     DiagLog.clear()
                     DiagLog.log("Cast", "已连接 $host:$port")
-                    DiagLog.log("Cast", "方向=${if (isLandscape) "横屏直投" else "竖屏旋转${rotateAngle}°"}")
-                    DiagLog.log("Cast", "VirtualDisplay ${virtualWidth}x${virtualHeight} → 编码 ${width}x${height} 旋转=$useRotation 角度=$rotateAngle°")
+                    DiagLog.log("Cast", "方向=${if (isLandscape) "横屏全屏" else "竖屏(左右黑边)"}")
+                    DiagLog.log("Cast", "VirtualDisplay ${virtualWidth}x${virtualHeight} → 编码 ${width}x${height} 直投")
                     // 必须在 startEncoding 之前置 true：drain 线程的 while 循环依赖
                     // isRunning 作为退出条件，若此时仍为 false，drain 线程启动后
                     // 一次循环都不进就退出，编码出的帧永远发不出去 → 接收端无画面。
@@ -328,43 +296,9 @@ class ScreenCastService : Service() {
         encoder?.start()
         DiagLog.log("Encoder", "已启动 ${if (useHevc) "H.265" else "H.264"} ${width}x${height} ${bitrate}bps ${fps}fps 低延迟")
 
-        // 投屏目标 Surface：横屏直投用 encoder.inputSurface，竖屏旋转用 RotationRenderer.output
-        val displayTarget: Surface
-        if (useRotation) {
-            // 竖屏 → 旋转 rotateAngle° → 横屏 16:9 填满 TV
-            val renderer = RotationRenderer(
-                codecInputSurface = inputSurface!!,
-                inWidth = virtualWidth,
-                inHeight = virtualHeight,
-                outWidth = width,
-                outHeight = height,
-                rotateAngle = rotateAngle
-            )
-            renderer.start()
-            rotationRenderer = renderer
-
-            if (!renderer.awaitReady(3000)) {
-                DiagLog.e("Render", "初始化超时或失败")
-                sendState("投屏失败：画面渲染器初始化失败")
-                stopCast()
-                stopSelf()
-                return
-            }
-            val renderInput = renderer.inputSurface
-            if (renderInput == null) {
-                DiagLog.e("Render", "inputSurface 为空")
-                sendState("投屏失败：渲染输入面为空")
-                stopCast()
-                stopSelf()
-                return
-            }
-            displayTarget = renderInput
-            DiagLog.log("VDisplay", "竖屏旋转模式，目标=RotationRenderer.inputSurface")
-        } else {
-            // 横屏直投：VirtualDisplay 直接渲染到 encoder.inputSurface，无旋转，最稳定
-            displayTarget = inputSurface!!
-            DiagLog.log("VDisplay", "横屏直投模式，目标=encoder.inputSurface")
-        }
+        // 直投：VirtualDisplay 直接渲染到 encoder.inputSurface，无旋转、无中间渲染
+        val displayTarget = inputSurface!!
+        DiagLog.log("VDisplay", "直投模式，目标=encoder.inputSurface")
 
         DiagLog.log("VDisplay", "创建 VirtualDisplay ${virtualWidth}x${virtualHeight} dpi=$dpi")
         virtualDisplay = mediaProjection?.createVirtualDisplay(
@@ -440,10 +374,6 @@ class ScreenCastService : Service() {
         } catch (_: Exception) {
         }
         try {
-            rotationRenderer?.stop()
-        } catch (_: Exception) {
-        }
-        try {
             encoder?.stop()
         } catch (_: Exception) {
         }
@@ -461,7 +391,6 @@ class ScreenCastService : Service() {
         }
         sender.disconnect()
         virtualDisplay = null
-        rotationRenderer = null
         encoder = null
         inputSurface = null
         mediaProjection = null

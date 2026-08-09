@@ -109,25 +109,6 @@
         android:layout_marginTop="8dp"
         android:text="使用 H.265/HEVC 编码（更省带宽，需 TV 端支持）" />
 
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
-        android:orientation="horizontal">
-
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="竖屏旋转角度："
-            android:textSize="14sp" />
-
-        <Spinner
-            android:id="@+id/spinRotate"
-            android:layout_width="0dp"
-            android:layout_weight="1"
-            android:layout_height="wrap_content" />
-    </LinearLayout>
-
     <TextView
         android:id="@+id/tvToggle"
         android:layout_width="match_parent"
