@@ -35,6 +35,8 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import android.widget.ScrollView
+import android.widget.ArrayAdapter
+import android.widget.Spinner
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
@@ -61,6 +63,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvDiag: TextView
     private lateinit var diagScroll: ScrollView
     private lateinit var cbHevc: CheckBox
+    private lateinit var spinRotate: Spinner
 
     // 配对成功后写入这两个字段，供投屏授权回来后启动服务使用
     private var resolvedHost = ""
@@ -92,6 +95,8 @@ class MainActivity : AppCompatActivity() {
                     putExtra(ScreenCastService.EXTRA_HOST, resolvedHost)
                     putExtra(ScreenCastService.EXTRA_PORT, resolvedPort)
                     putExtra(ScreenCastService.EXTRA_USE_HEVC, cbHevc.isChecked)
+                    putExtra(ScreenCastService.EXTRA_ROTATE_ANGLE,
+                        if (spinRotate.selectedItemPosition == 1) 270 else 90)
                 }
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                     startForegroundService(intent)
@@ -162,6 +167,13 @@ class MainActivity : AppCompatActivity() {
         tvDiag = findViewById(R.id.tvDiag)
         diagScroll = findViewById(R.id.diagScroll)
         cbHevc = findViewById(R.id.cbHevc)
+        spinRotate = findViewById(R.id.spinRotate)
+        // 竖屏旋转角度选项：默认 90°，若投出方向颠倒改为 270°。
+        // 不同设备屏幕传感器方向不同，故提供手动切换。
+        spinRotate.adapter = ArrayAdapter(
+            this, android.R.layout.simple_spinner_dropdown_item,
+            listOf("90°（默认）", "270°（方向颠倒时用）")
+        )
         findViewById<Button>(R.id.btnClearDiag).setOnClickListener {
             DiagLog.clear()
         }

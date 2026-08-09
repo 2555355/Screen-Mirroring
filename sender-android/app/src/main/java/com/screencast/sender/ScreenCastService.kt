@@ -60,6 +60,8 @@ class ScreenCastService : Service() {
         const val EXTRA_MAX_EDGE = "max_edge"
         /** 是否使用 H.265/HEVC 编码（默认 H.264）。 */
         const val EXTRA_USE_HEVC = "use_hevc"
+        /** 竖屏模式下的旋转角度（90 或 270，默认 90）。不同设备传感器方向不同。 */
+        const val EXTRA_ROTATE_ANGLE = "rotate_angle"
 
         const val ACTION_START = "com.screencast.sender.START"
         const val ACTION_STOP = "com.screencast.sender.STOP"
@@ -94,6 +96,8 @@ class ScreenCastService : Service() {
     private var maxEdge = 1280
     // 是否使用 H.265/HEVC 编码（true=HEVC, false=AVC/H.264）
     private var useHevc = false
+    // 竖屏模式下的旋转角度（90 或 270）
+    private var rotateAngle = 90
 
     private var drainThread: Thread? = null
 
@@ -142,6 +146,7 @@ class ScreenCastService : Service() {
         fps = intent.getIntExtra(EXTRA_FPS, fps)
         maxEdge = intent.getIntExtra(EXTRA_MAX_EDGE, maxEdge)
         useHevc = intent.getBooleanExtra(EXTRA_USE_HEVC, false)
+        rotateAngle = intent.getIntExtra(EXTRA_ROTATE_ANGLE, 90)
 
         // 【Android 14 关键顺序】参考 forasoft 生产实践：
         // 必须 startForeground(MEDIA_PROJECTION 类型) 在 getMediaProjection 之前。
@@ -238,7 +243,7 @@ class ScreenCastService : Service() {
                     DiagLog.clear()
                     DiagLog.log("Cast", "已连接 $host:$port")
                     DiagLog.log("Cast", "方向=${if (isLandscape) "横屏直投" else "竖屏旋转→横屏"}")
-                    DiagLog.log("Cast", "VirtualDisplay ${virtualWidth}x${virtualHeight} → 编码 ${width}x${height} 旋转=$useRotation")
+                    DiagLog.log("Cast", "VirtualDisplay ${virtualWidth}x${virtualHeight} → 编码 ${width}x${height} 旋转=$useRotation 角度=$rotateAngle°")
                     // 必须在 startEncoding 之前置 true：drain 线程的 while 循环依赖
                     // isRunning 作为退出条件，若此时仍为 false，drain 线程启动后
                     // 一次循环都不进就退出，编码出的帧永远发不出去 → 接收端无画面。
@@ -312,13 +317,14 @@ class ScreenCastService : Service() {
         // 投屏目标 Surface：横屏直投用 encoder.inputSurface，竖屏旋转用 RotationRenderer.output
         val displayTarget: Surface
         if (useRotation) {
-            // 竖屏 → 旋转 90° → 横屏 16:9 填满 TV
+            // 竖屏 → 旋转 rotateAngle° → 横屏 16:9 填满 TV
             val renderer = RotationRenderer(
                 codecInputSurface = inputSurface!!,
                 inWidth = virtualWidth,
                 inHeight = virtualHeight,
                 outWidth = width,
-                outHeight = height
+                outHeight = height,
+                rotateAngle = rotateAngle
             )
             renderer.start()
             rotationRenderer = renderer

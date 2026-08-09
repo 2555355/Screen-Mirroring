@@ -44,13 +44,16 @@ import java.util.concurrent.locks.ReentrantLock
  * @param inHeight VirtualDisplay 输出高度（竖屏传感器方向，如 1280）
  * @param outWidth 编码输出宽度（横屏，如 1280）
  * @param outHeight 编码输出高度（横屏，如 720）
+ * @param rotateAngle 旋转角度（90 或 270）。不同设备传感器方向不同，
+ *                    若 90° 投出方向颠倒，改用 270°。
  */
 class RotationRenderer(
     private val codecInputSurface: Surface,
     private val inWidth: Int = 720,
     private val inHeight: Int = 1280,
     private val outWidth: Int = 1280,
-    private val outHeight: Int = 720
+    private val outHeight: Int = 720,
+    private val rotateAngle: Int = 90
 ) {
 
     companion object {
@@ -186,8 +189,9 @@ class RotationRenderer(
             uTextureLoc = GLES20.glGetUniformLocation(program, "uTexture")
             DiagLog.log("Shader", "program=$program locs OK")
 
-            // MVP 矩阵：旋转 90°（竖屏变横屏）。
-            Matrix.setRotateM(mvpMatrix, 0, 90f, 0f, 0f, 1f)
+            // MVP 矩阵：旋转 rotateAngle°（竖屏变横屏，方向由用户选择）。
+            Matrix.setRotateM(mvpMatrix, 0, rotateAngle.toFloat(), 0f, 0f, 1f)
+            DiagLog.log("Render", "MVP 旋转角度=$rotateAngle°")
 
             DiagLog.log("Render", "进入渲染循环，等待 VirtualDisplay 帧...")
 

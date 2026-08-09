@@ -58,7 +58,10 @@ class ScanQrActivity : Activity() {
     private var containerHeight = 0
 
     private val reader = MultiFormatReader().apply {
-        setHints(mapOf(DecodeHintType.POSSIBLE_FORMATS to listOf(com.google.zxing.BarcodeFormat.QR_CODE)))
+        setHints(mapOf(
+            DecodeHintType.POSSIBLE_FORMATS to listOf(com.google.zxing.BarcodeFormat.QR_CODE),
+            DecodeHintType.TRY_HARDER to true
+        ))
     }
 
     private val previewCallback = Camera.PreviewCallback { data, _ ->
@@ -68,16 +71,67 @@ class ScanQrActivity : Activity() {
         if (w == 0 || h == 0) return@PreviewCallback
         decoding = true
         try {
-            val source = PlanarYUVLuminanceSource(data, w, h, 0, 0, w, h, false)
-            val bitmap = BinaryBitmap(HybridBinarizer(source))
-            val result = reader.decode(bitmap)
-            val intent = intent.apply { putExtra(EXTRA_RESULT, result.text) }
-            setResult(Activity.RESULT_OK, intent)
-            finish()
+            // setDisplayOrientation(90) 只旋转预览显示，不旋转预览数据。
+            // ZXing 只用 Y（亮度）平面，所以只旋转 Y 平面即可，UV 不影响解码。
+            //
+            // 不同设备后置摄像头传感器方向可能不同（多数 90°，少数 270°），
+            // setDisplayOrientation(90) 在两种设备上预览都是正向显示，但底层数据方向不同。
+            // 为提高识别率，顺时针 90° 和 270° 两个方向都尝试解码，命中即返回。
+            val result: com.google.zxing.Result? = tryDecodeCw(data, w, h, 90)
+                ?: tryDecodeCw(data, w, h, 270)
+            if (result != null) {
+                val intent = intent.apply { putExtra(EXTRA_RESULT, result.text) }
+                setResult(Activity.RESULT_OK, intent)
+                finish()
+            }
         } catch (_: Exception) {
             // 当前帧没扫到，继续下一帧
         } finally {
             decoding = false
+        }
+    }
+
+    /**
+     * 把预览 Y 平面顺时针旋转 [angleDeg] 度（仅支持 90 / 270）后交给 ZXing 解码。
+     * @return 解码成功的结果，失败返回 null
+     */
+    private fun tryDecodeCw(data: ByteArray, w: Int, h: Int, angleDeg: Int): com.google.zxing.Result? {
+        val ySize = w * h
+        val rotated = ByteArray(ySize)
+        when (angleDeg) {
+            90 -> {
+                // 顺时针 90°：原 (i,j) → 新位置（按行写入）
+                var idx = 0
+                for (i in 0 until w) {
+                    for (j in h - 1 downTo 0) {
+                        rotated[idx++] = data[j * w + i]
+                    }
+                }
+                return decodeRotated(rotated, h, w)
+            }
+            270 -> {
+                // 顺时针 270°（=逆时针 90°）
+                var idx = 0
+                for (i in w - 1 downTo 0) {
+                    for (j in 0 until h) {
+                        rotated[idx++] = data[j * w + i]
+                    }
+                }
+                return decodeRotated(rotated, h, w)
+            }
+        }
+        return null
+    }
+
+    private fun decodeRotated(yData: ByteArray, w: Int, h: Int): com.google.zxing.Result? {
+        return try {
+            val source = PlanarYUVLuminanceSource(yData, w, h, 0, 0, w, h, false)
+            val bitmap = BinaryBitmap(HybridBinarizer(source))
+            reader.decode(bitmap)
+        } catch (_: com.google.zxing.NotFoundException) {
+            null
+        } catch (_: Exception) {
+            null
         }
     }
 
