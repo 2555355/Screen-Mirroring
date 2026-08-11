@@ -19,12 +19,14 @@ package com.screencast.sender
 
 import android.app.Activity
 import android.content.Intent
-import android.content.pm.PackageManager
+import android.graphics.drawable.Drawable
 import android.os.Bundle
+import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.AdapterView
-import android.widget.ArrayAdapter
+import android.widget.BaseAdapter
+import android.widget.ImageView
 import android.widget.ListView
 import android.widget.TextView
 
@@ -32,6 +34,7 @@ import android.widget.TextView
  * 应用列表界面：列出设备上所有可启动的第三方应用，
  * 用户选中后把包名返回给 [MainActivity]，由后者启动该 App 并请求单应用投屏授权。
  *
+ * 列表项展示：图标 + 应用名 + 包名，按应用名排序。
  * 不列出系统应用（launcher、设置等），只显示有主 Activity 的用户应用。
  */
 class AppListActivity : Activity() {
@@ -43,8 +46,11 @@ class AppListActivity : Activity() {
 
     private data class AppItem(
         val label: String,
-        val packageName: String
+        val packageName: String,
+        val icon: Drawable
     )
+
+    private val apps = mutableListOf<AppItem>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -52,12 +58,17 @@ class AppListActivity : Activity() {
 
         val listView = findViewById<ListView>(R.id.appList)
         val tvHint = findViewById<TextView>(R.id.tvAppListHint)
-        tvHint.text = "选择要投屏的应用\n（之后在系统弹窗中选「单个应用」）"
+        tvHint.text = "选择要投屏的应用\n（之后在系统弹窗中选「单个应用」即可）"
 
-        val apps = loadApps()
-        val labels = apps.map { it.label }
-        val adapter = ArrayAdapter(this, android.R.layout.simple_list_item_1, labels)
-        listView.adapter = adapter
+        // 后台加载应用列表，避免阻塞 UI
+        Thread {
+            val loaded = loadApps()
+            runOnUiThread {
+                apps.clear()
+                apps.addAll(loaded)
+                listView.adapter = AppAdapter(apps)
+            }
+        }.start()
 
         listView.onItemClickListener = AdapterView.OnItemClickListener { _, _, position, _ ->
             val item = apps[position]
@@ -75,11 +86,27 @@ class AppListActivity : Activity() {
         val pm = packageManager
         val main = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
         val resolved = pm.queryIntentActivities(main, 0)
-        // 排除自己，避免用户投屏投屏 App 自己
         val myPkg = packageName
         return resolved
             .filter { it.activityInfo.packageName != myPkg }
-            .map { AppItem(it.loadLabel(pm).toString(), it.activityInfo.packageName) }
+            .map { AppItem(it.loadLabel(pm).toString(), it.activityInfo.packageName, it.loadIcon(pm)) }
             .sortedBy { it.label.lowercase() }
+    }
+
+    /** 应用列表适配器：图标 + 名称 + 包名。 */
+    private inner class AppAdapter(private val items: List<AppItem>) : BaseAdapter() {
+        override fun getCount(): Int = items.size
+        override fun getItem(position: Int): Any = items[position]
+        override fun getItemId(position: Int): Long = position.toLong()
+
+        override fun getView(position: Int, convertView: View?, parent: ViewGroup?): View {
+            val view = convertView ?: LayoutInflater.from(this@AppListActivity)
+                .inflate(R.layout.app_list_item, parent, false)
+            val item = items[position]
+            view.findViewById<ImageView>(R.id.ivAppIcon).setImageDrawable(item.icon)
+            view.findViewById<TextView>(R.id.tvAppName).text = item.label
+            view.findViewById<TextView>(R.id.tvAppPkg).text = item.packageName
+            return view
+        }
     }
 }

@@ -158,20 +158,23 @@ class MainActivity : AppCompatActivity() {
                 return@registerForActivityResult
             }
             startActivity(launchIntent)
-            // 2. 延迟 500ms 让 App 切到前台，再请求投屏授权
-            // 这样系统弹窗选「单个应用」时列表里第一个就是刚启动的 App
-            tvStatus.text = "已启动 $label，请在系统弹窗中选「单个应用」"
+            // 2. 延迟 800ms 让 App 切到前台，再请求投屏授权
+            // 这样系统弹窗「单个应用」列表里第一个就是刚启动的 App
+            tvStatus.text = "已启动 $label\n下一步：在系统弹窗中点「单个应用」并选中 $label"
             btnPickApp.postDelayed({
-                // 自动勾选单应用投屏复选框，提示用户在弹窗中选「单个应用」
-                cbSingleApp.isChecked = true
-                // 走手动 IP 路径：用上次的 host/port
                 if (resolvedHost.isEmpty()) {
-                    // 没配过 IP，先提示用户连接
                     Toast.makeText(this, "请先通过配对码或 IP 连接接收端", Toast.LENGTH_LONG).show()
                 } else {
+                    // 弹窗前提示用户操作要点
+                    Toast.makeText(
+                        this,
+                        "系统弹窗中选「单个应用」→ 选 $label",
+                        Toast.LENGTH_LONG
+                    ).show()
+                    cbSingleApp.isChecked = true
                     requestProjectionWithPermissionCheck()
                 }
-            }, 500)
+            }, 800)
         }
     }
 
