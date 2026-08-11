@@ -56,6 +56,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var etPort: EditText
     private lateinit var btnStart: Button
     private lateinit var btnStop: Button
+    private lateinit var btnTouchpad: Button
     private lateinit var tvToggle: TextView
     private lateinit var tvStatus: TextView
     private lateinit var tvDiag: TextView
@@ -158,6 +159,7 @@ class MainActivity : AppCompatActivity() {
         etPort = findViewById(R.id.etPort)
         btnStart = findViewById(R.id.btnStart)
         btnStop = findViewById(R.id.btnStop)
+        btnTouchpad = findViewById(R.id.btnTouchpad)
         tvToggle = findViewById(R.id.tvToggle)
         tvStatus = findViewById(R.id.tvStatus)
         tvDiag = findViewById(R.id.tvDiag)
@@ -242,6 +244,18 @@ class MainActivity : AppCompatActivity() {
             }
             startService(intent)
             updateStatus(false)
+        }
+
+        // 打开触摸板：把已解析的接收端 host 传给 TouchpadActivity
+        btnTouchpad.setOnClickListener {
+            if (resolvedHost.isEmpty()) {
+                Toast.makeText(this, "未连接到接收端", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            val intent = Intent(this, TouchpadActivity::class.java).apply {
+                putExtra(TouchpadActivity.EXTRA_HOST, resolvedHost)
+            }
+            startActivity(intent)
         }
 
         updateStatus(ScreenCastService.isRunning)
@@ -334,6 +348,7 @@ class MainActivity : AppCompatActivity() {
         btnScan.isEnabled = !running
         btnStart.isEnabled = !running
         btnStop.isEnabled = running
+        btnTouchpad.isEnabled = running
     }
 
     /** 启动二维码扫描界面。 */

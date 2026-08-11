@@ -56,6 +56,7 @@ class CastPresentation(
 
     private lateinit var surfaceView: SurfaceView
     private lateinit var tvOverlay: TextView
+    private lateinit var cursorView: CursorView
     private var decoder: H264Decoder? = null
     @Volatile private var surfaceReady = false
     // TV Display 真实尺寸（surfaceChanged 回调拿到的容器尺寸）
@@ -78,6 +79,7 @@ class CastPresentation(
         surfaceView = findViewById(R.id.surface)
         tvOverlay = findViewById(R.id.tvOverlay)
         tvOverlay.text = "$displayName · 等待画面 ..."
+        cursorView = findViewById(R.id.cursor)
 
         surfaceView.holder.addCallback(object : SurfaceHolder.Callback {
             override fun surfaceCreated(holder: SurfaceHolder) {
@@ -178,6 +180,25 @@ class CastPresentation(
         if (this::tvOverlay.isInitialized) {
             tvOverlay.visibility = View.GONE
         }
+    }
+
+    /**
+     * 移动触摸板光标：相对位移，自动夹到 View 边界内。
+     * 首次调用时光标自动变为可见。
+     */
+    fun moveCursor(dx: Int, dy: Int) {
+        if (!this::cursorView.isInitialized) return
+        if (!cursorView.visible) {
+            cursorView.visible = true
+            cursorView.visibility = View.VISIBLE
+        }
+        cursorView.moveBy(dx, dy)
+    }
+
+    /** 触发一次点击反馈：让光标短暂闪烁。 */
+    fun clickCursor() {
+        if (!this::cursorView.isInitialized) return
+        cursorView.clickCursor()
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {

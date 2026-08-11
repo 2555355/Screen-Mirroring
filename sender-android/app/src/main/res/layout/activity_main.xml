@@ -102,6 +102,14 @@
         android:layout_marginTop="8dp"
         android:text="停止投屏" />
 
+    <Button
+        android:id="@+id/btnTouchpad"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:enabled="false"
+        android:text="打开触摸板（投屏中可用）" />
+
     <CheckBox
         android:id="@+id/cbHevc"
         android:layout_width="wrap_content"

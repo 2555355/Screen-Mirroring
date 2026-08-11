@@ -18,6 +18,7 @@
 package com.screencast.tv
 
 import android.content.Context
+import android.content.Intent
 import android.graphics.Bitmap
 import android.hardware.display.DisplayManager
 import android.os.Build
@@ -40,6 +41,7 @@ class MainActivity : AppCompatActivity() {
     companion object {
         private const val TAG = "MainActivity"
         private const val PORT = 8855
+        private const val CONTROL_PORT = 8856
     }
 
     private lateinit var displayManager: DisplayManager
@@ -55,6 +57,7 @@ class MainActivity : AppCompatActivity() {
     private val presentations = linkedMapOf<Int, CastPresentation>()
     private var server: ScreenReceiverServer? = null
     private var pairingServer: PairingServer? = null
+    private var controlServer: ControlServer? = null
 
     private val displayListener = object : DisplayManager.DisplayListener {
         override fun onDisplayAdded(displayId: Int) {
@@ -87,13 +90,14 @@ class MainActivity : AppCompatActivity() {
         tvPairCode = findViewById(R.id.tvPairCode)
         ivQr = findViewById(R.id.ivQr)
 
-        tvInfo.text = "本机IP: ${getLocalIp()}\nTCP端口: $PORT"
+        tvInfo.text = "本机IP: ${getLocalIp()}\nTCP端口: $PORT（视频）/ $CONTROL_PORT（控制）"
 
         btnMirrorAll.setOnClickListener { startMirrorAll() }
         btnRefresh.setOnClickListener { refreshDisplayList() }
 
         // 启动 TCP 接收 + 配对码发现服务（无需先选显示器）
         ensureServer()
+        ensureControlServer()
         startPairing()
 
         refreshDisplayList()
@@ -275,6 +279,62 @@ class MainActivity : AppCompatActivity() {
         server = s
     }
 
+    /**
+     * 启动触摸板控制服务（端口 8856），接收手机端的 MOVE/CLICK/BACK/HOME 消息。
+     * 回调在 IO 线程，UI 操作需切回主线程。
+     */
+    private fun ensureControlServer() {
+        if (controlServer != null) return
+        val c = ControlServer(
+            port = CONTROL_PORT,
+            onMove = { dx, dy ->
+                runOnUiThread {
+                    // 镜像模式：把光标位移应用到所有活跃 Presentation
+                    presentations.values.forEach { it.moveCursor(dx, dy) }
+                }
+            },
+            onClick = {
+                runOnUiThread {
+                    // 无障碍服务授权前不做真实点击注入，只让光标闪烁反馈
+                    presentations.values.forEach { it.clickCursor() }
+                }
+            },
+            onBack = {
+                runOnUiThread { onControlBack() }
+            },
+            onHome = {
+                runOnUiThread { onControlHome() }
+            },
+            onState = { msg -> runOnUiThread {
+                tvStatus.text = msg
+            } }
+        )
+        c.start()
+        controlServer = c
+    }
+
+    /** 控制端 BACK：优先停掉投屏，否则按返回退出。 */
+    private fun onControlBack() {
+        if (presentations.isNotEmpty()) {
+            stopAllCasts()
+        } else {
+            onBackPressed()
+        }
+    }
+
+    /** 控制端 HOME：回到系统 Launcher。 */
+    private fun onControlHome() {
+        val intent = Intent(Intent.ACTION_MAIN).apply {
+            addCategory(Intent.CATEGORY_HOME)
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+        }
+        try {
+            startActivity(intent)
+        } catch (e: Exception) {
+            Log.w(TAG, "start HOME intent failed: ${e.message}")
+        }
+    }
+
     private fun updateStatusText() {
         val n = presentations.size
         tvStatus.text = if (n == 0) {
@@ -292,6 +352,8 @@ class MainActivity : AppCompatActivity() {
         pairingServer = null
         server?.stop()
         server = null
+        controlServer?.stop()
+        controlServer = null
     }
 
     // 在主界面按 BACK：若正在投屏先停投屏，再退出

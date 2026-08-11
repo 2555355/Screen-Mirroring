@@ -23,4 +23,11 @@
         android:shadowDy="2"
         android:shadowRadius="2"
         android:text="等待画面 ..." />
+
+    <!-- 触摸板光标：叠在 SurfaceView 之上，初始隐藏，收到控制消息后再显示 -->
+    <com.screencast.tv.CursorView
+        android:id="@+id/cursor"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:visibility="gone" />
 </FrameLayout>

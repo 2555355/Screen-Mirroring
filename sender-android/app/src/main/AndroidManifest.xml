@@ -43,6 +43,11 @@
             android:screenOrientation="portrait"
             android:exported="false" />
 
+        <!-- 触摸板界面：投屏时控制 TV 端光标，不锁方向（与 MainActivity 一致） -->
+        <activity
+            android:name=".TouchpadActivity"
+            android:exported="false" />
+
         <service
             android:name=".ScreenCastService"
             android:foregroundServiceType="mediaProjection"
