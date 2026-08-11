@@ -109,6 +109,13 @@
         android:layout_marginTop="8dp"
         android:text="使用 H.265/HEVC 编码（更省带宽，需 TV 端支持）" />
 
+    <CheckBox
+        android:id="@+id/cbSingleApp"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:text="单应用投屏（Android 14+，在系统弹窗中选择单个应用）" />
+
     <TextView
         android:id="@+id/tvToggle"
         android:layout_width="match_parent"

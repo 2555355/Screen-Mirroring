@@ -61,6 +61,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvDiag: TextView
     private lateinit var diagScroll: ScrollView
     private lateinit var cbHevc: CheckBox
+    private lateinit var cbSingleApp: CheckBox
 
     // 配对成功后写入这两个字段，供投屏授权回来后启动服务使用
     private var resolvedHost = ""
@@ -162,6 +163,7 @@ class MainActivity : AppCompatActivity() {
         tvDiag = findViewById(R.id.tvDiag)
         diagScroll = findViewById(R.id.diagScroll)
         cbHevc = findViewById(R.id.cbHevc)
+        cbSingleApp = findViewById(R.id.cbSingleApp)
         findViewById<Button>(R.id.btnClearDiag).setOnClickListener {
             DiagLog.clear()
         }
@@ -315,6 +317,14 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun requestProjection() {
+        // 单应用投屏提示
+        if (cbSingleApp.isChecked) {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                Toast.makeText(this, "单应用投屏需要 Android 14+，当前系统不支持", Toast.LENGTH_LONG).show()
+                return
+            }
+            Toast.makeText(this, "请在系统弹窗中选择「单个应用」", Toast.LENGTH_LONG).show()
+        }
         projectionLauncher.launch(projectionManager.createScreenCaptureIntent())
     }
 

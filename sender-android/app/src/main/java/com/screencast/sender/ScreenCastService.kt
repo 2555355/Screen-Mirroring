@@ -164,6 +164,25 @@ class ScreenCastService : Service() {
                     stopCast()
                     stopSelf()
                 }
+
+                /** Android 14+ 单应用投屏：被投屏的应用窗口尺寸变化时回调。 */
+                override fun onCapturedContentResize(w: Int, h: Int) {
+                    // VirtualDisplay 跟随内容尺寸变化，避免画面拉伸
+                    try {
+                        virtualDisplay?.resize(w, h, dpi)
+                        DiagLog.log("Cast", "单应用内容尺寸变更 ${w}x${h}")
+                    } catch (e: Exception) {
+                        DiagLog.e("Cast", "resize失败: ${e.message}")
+                    }
+                }
+
+                /** Android 14+ 单应用投屏：被投屏的应用可见性变化（如切到后台）。 */
+                override fun onCapturedContentVisibilityChanged(isVisible: Boolean) {
+                    DiagLog.log("Cast", "单应用可见性变更 isVisible=$isVisible")
+                    if (!isVisible) {
+                        sendState("被投屏的应用已隐藏，切回该应用继续投屏")
+                    }
+                }
             }, null)
 
             // 3. 耗时操作（TCP 连接、编码初始化）放后台线程
