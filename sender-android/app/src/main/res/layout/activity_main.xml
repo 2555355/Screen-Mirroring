@@ -103,6 +103,13 @@
         android:text="停止投屏" />
 
     <Button
+        android:id="@+id/btnPickApp"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:text="选择单个应用投屏" />
+
+    <Button
         android:id="@+id/btnTouchpad"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"

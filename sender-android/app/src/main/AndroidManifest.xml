@@ -48,6 +48,11 @@
             android:name=".TouchpadActivity"
             android:exported="false" />
 
+        <!-- 应用列表界面：选择要投屏的单个应用 -->
+        <activity
+            android:name=".AppListActivity"
+            android:exported="false" />
+
         <service
             android:name=".ScreenCastService"
             android:foregroundServiceType="mediaProjection"

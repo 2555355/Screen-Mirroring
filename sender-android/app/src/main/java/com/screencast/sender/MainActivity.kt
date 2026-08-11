@@ -56,7 +56,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var etPort: EditText
     private lateinit var btnStart: Button
     private lateinit var btnStop: Button
-    private lateinit var btnTouchpad: Button
+    private lateinit var btnPickApp: Button
     private lateinit var tvToggle: TextView
     private lateinit var tvStatus: TextView
     private lateinit var tvDiag: TextView
@@ -144,6 +144,37 @@ class MainActivity : AppCompatActivity() {
         else Toast.makeText(this, "需要摄像头权限才能扫码", Toast.LENGTH_SHORT).show()
     }
 
+    /** 应用选择回调：选中后启动该 App，并提示用户在系统弹窗中选「单个应用」。 */
+    private val appPickerLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            val pkg = result.data?.getStringExtra(AppListActivity.EXTRA_PACKAGE) ?: return@registerForActivityResult
+            val label = result.data?.getStringExtra(AppListActivity.EXTRA_LABEL) ?: pkg
+            // 1. 启动选中的 App
+            val launchIntent = packageManager.getLaunchIntentForPackage(pkg)
+            if (launchIntent == null) {
+                Toast.makeText(this, "无法启动 $label", Toast.LENGTH_SHORT).show()
+                return@registerForActivityResult
+            }
+            startActivity(launchIntent)
+            // 2. 延迟 500ms 让 App 切到前台，再请求投屏授权
+            // 这样系统弹窗选「单个应用」时列表里第一个就是刚启动的 App
+            tvStatus.text = "已启动 $label，请在系统弹窗中选「单个应用」"
+            btnPickApp.postDelayed({
+                // 自动勾选单应用投屏复选框，提示用户在弹窗中选「单个应用」
+                cbSingleApp.isChecked = true
+                // 走手动 IP 路径：用上次的 host/port
+                if (resolvedHost.isEmpty()) {
+                    // 没配过 IP，先提示用户连接
+                    Toast.makeText(this, "请先通过配对码或 IP 连接接收端", Toast.LENGTH_LONG).show()
+                } else {
+                    requestProjectionWithPermissionCheck()
+                }
+            }, 500)
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
@@ -159,6 +190,7 @@ class MainActivity : AppCompatActivity() {
         etPort = findViewById(R.id.etPort)
         btnStart = findViewById(R.id.btnStart)
         btnStop = findViewById(R.id.btnStop)
+        btnPickApp = findViewById(R.id.btnPickApp)
         btnTouchpad = findViewById(R.id.btnTouchpad)
         tvToggle = findViewById(R.id.tvToggle)
         tvStatus = findViewById(R.id.tvStatus)
@@ -244,6 +276,15 @@ class MainActivity : AppCompatActivity() {
             }
             startService(intent)
             updateStatus(false)
+        }
+
+        // 选择单个应用投屏：打开应用列表，选中后启动该 App 并请求授权
+        btnPickApp.setOnClickListener {
+            if (ScreenCastService.isRunning) {
+                Toast.makeText(this, "请先停止当前投屏", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            appPickerLauncher.launch(Intent(this, AppListActivity::class.java))
         }
 
         // 打开触摸板：把已解析的接收端 host 传给 TouchpadActivity
