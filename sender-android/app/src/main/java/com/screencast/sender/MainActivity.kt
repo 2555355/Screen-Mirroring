@@ -57,6 +57,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnStart: Button
     private lateinit var btnStop: Button
     private lateinit var btnPickApp: Button
+    private lateinit var btnTouchpad: Button
     private lateinit var tvToggle: TextView
     private lateinit var tvStatus: TextView
     private lateinit var tvDiag: TextView
